@@ -15,8 +15,8 @@ This document provides exact, copy-paste implementation steps for building the A
 | 0. Agent Build Instructions | ✅ Ongoing | Section 0 docs fetched & cross-referenced before each implementation step |
 | 1. Prerequisites & Environment Setup | ✅ Done | Git repo `arko05roy/Aegis` initialized; workspace dirs, `.env`, `.gitignore`, `package.json` (name: `aegis`), `kh` CLI v0.9.0 installed |
 | 2. 0G Platform Integration | ✅ Done | `@0gfoundation/0g-ts-sdk@1.2.6` + `@0glabs/0g-serving-broker@0.7.5` installed; `zerog/storage/client.ts` and `zerog/compute/client.ts` verified live on Galileo testnet (chain 16602, 2 inference services incl. `qwen/qwen-2.5-7b-instruct`) |
-| 3. Gensyn AXL Transport Layer | ⏳ Pending | — |
-| 4. MCP Protocol Implementation | ⏳ Pending | — |
+| 3. Gensyn AXL Transport Layer | ✅ Done | `gensyn-ai/axl` cloned & built (Go 1.25.5 toolchain); ed25519 identity generated; node live on 127.0.0.1:9002 connected to 2 public peers (`34.46.48.224`, `136.111.135.206`); `protocol/axl/bridge.ts` + `scripts/verify-axl.ts` verified topology end-to-end |
+| 4. MCP Protocol Implementation | ✅ Done | `@modelcontextprotocol/sdk@1.29.0` + `zod@4.3.6` installed; `protocol/mcp/{schemas,server,client}.ts` in place; 6 tools registered (`rfq.get`, `quote.sign`, `order.commit`, `fiat.details`, `proof.submit`, `dispute.open`); `scripts/verify-mcp.ts` passes + full `tsc --noEmit` clean |
 | 5. x402 Payment Protocol | ⏳ Pending | — |
 | 6. KeeperHub Automation | ⏳ Pending | — |
 | 7. Payment Verification (KeeperHub Webhooks) | ⏳ Pending | — |
@@ -3152,6 +3152,334 @@ export default function ChatPage() {
   );
 }
 ```
+
+### 10.4 Demo Layout — Why the Chat UI Alone Isn't Enough
+
+The `ChatPage` above is a **placeholder**. For a live demo (judges watching a 3-minute pitch), a single chat box doesn't surface the machinery that makes this project distinctive — the P2P agent mesh, on-chain escrow transitions, 0G Storage evidence, and webhook-driven release. §10.5 sketches a purpose-built demo route that makes all of this visible at once.
+
+The goal: **every claim we make verbally is accompanied by something the judge can see move on screen.**
+
+| Claim | What must be visible |
+|---|---|
+| "Agents negotiate peer-to-peer" | Live AXL message stream (both nodes) |
+| "No custodian holds your money" | `Escrow` state transitions on-chain |
+| "Payment proof is auditable" | 0G Storage `rootHash` with a download link |
+| "Works with real banks" | A `banksim`-vs-`upi` rail toggle that swaps only the emitter |
+
+### 10.5 Demo Page (`/apps/web/src/app/demo/page.tsx`)
+
+A **4-tile layout** that runs the full happy path on one screen. Build this *in addition to* the chat UI — don't replace it.
+
+```
+┌──────────────────────────────┬──────────────────────────────┐
+│ 1. Buyer Intent + Pay Now    │ 2. Live Order State Machine  │
+│                              │   INIT→LOCKED→PAID→RELEASED  │
+├──────────────────────────────┼──────────────────────────────┤
+│ 3. AXL Message Stream        │ 4. On-chain + 0G Evidence    │
+│   (both nodes, live tail)    │   tx links + rootHash dl     │
+└──────────────────────────────┴──────────────────────────────┘
+```
+
+```typescript
+// apps/web/src/app/demo/page.tsx
+'use client';
+
+import { useEffect, useState } from 'react';
+
+type OrderState = 'INIT' | 'LOCKED' | 'COMMITTED' | 'PAID' | 'RELEASED' | 'EXPIRED';
+
+interface DemoState {
+  orderId: string | null;
+  state: OrderState;
+  rfqId?: string;
+  quote?: { rate: string; outputAmount: string; fee: string; lp: string };
+  lockTx?: string;
+  releaseTx?: string;
+  evidenceRootHash?: string;
+  balance?: { before: string; after?: string };
+}
+
+interface AxlEvent { ts: number; node: 'A' | 'B'; dir: 'send' | 'recv'; type: string; peer: string; }
+
+export default function DemoPage() {
+  const [demo, setDemo] = useState<DemoState>({ orderId: null, state: 'INIT' });
+  const [axlLog, setAxlLog] = useState<AxlEvent[]>([]);
+  const [intent, setIntent] = useState({ amount: '100', fromCcy: 'INR', toCcy: 'ETH', rail: 'banksim' });
+
+  // Poll the bridge WS route for AXL events + order updates
+  useEffect(() => {
+    const id = setInterval(async () => {
+      const r = await fetch('/api/demo/state');
+      if (!r.ok) return;
+      const { demo: d, axl } = await r.json();
+      setDemo(d);
+      setAxlLog(axl.slice(-40));
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
+
+  const startOrder = async () => {
+    await fetch('/api/demo/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(intent),
+    });
+  };
+
+  const payNow = async () => {
+    await fetch('/api/demo/pay', { method: 'POST' });
+  };
+
+  return (
+    <div className="grid grid-cols-2 grid-rows-2 h-screen bg-black text-white font-mono text-sm">
+      {/* Tile 1: Intent + Pay */}
+      <section className="border-r border-b border-zinc-800 p-6 flex flex-col">
+        <h2 className="text-zinc-400 uppercase tracking-wider text-xs mb-4">1. Buyer</h2>
+        {demo.state === 'INIT' && (
+          <>
+            <label className="block mb-2">I want to buy</label>
+            <div className="flex gap-2 mb-4">
+              <input value={intent.amount} onChange={e => setIntent({ ...intent, amount: e.target.value })}
+                     className="w-24 bg-zinc-900 px-3 py-2 rounded" />
+              <select value={intent.fromCcy} onChange={e => setIntent({ ...intent, fromCcy: e.target.value })}
+                      className="bg-zinc-900 px-3 py-2 rounded">
+                <option>INR</option><option>USD</option><option>EUR</option>
+              </select>
+              <span className="self-center">→</span>
+              <select value={intent.toCcy} onChange={e => setIntent({ ...intent, toCcy: e.target.value })}
+                      className="bg-zinc-900 px-3 py-2 rounded">
+                <option>ETH</option><option>USDC</option>
+              </select>
+            </div>
+            <label className="block mb-2 text-zinc-400">via rail</label>
+            <select value={intent.rail} onChange={e => setIntent({ ...intent, rail: e.target.value })}
+                    className="bg-zinc-900 px-3 py-2 rounded mb-4">
+              <option value="banksim">BankSim [DEMO]</option>
+              <option value="upi">UPI (prod)</option>
+            </select>
+            <button onClick={startOrder} className="bg-emerald-600 hover:bg-emerald-500 px-6 py-3 rounded font-semibold">
+              Start Order
+            </button>
+          </>
+        )}
+        {demo.quote && (
+          <div className="mt-4 p-4 bg-zinc-900 rounded">
+            <div className="text-zinc-400">Quote from LP {demo.quote.lp.slice(0, 10)}…</div>
+            <div className="text-2xl mt-2">{demo.quote.outputAmount} ETH</div>
+            <div className="text-zinc-500 text-xs">rate {demo.quote.rate} · fee {demo.quote.fee}</div>
+          </div>
+        )}
+        {demo.state === 'LOCKED' && (
+          <button onClick={payNow} className="mt-6 bg-blue-600 hover:bg-blue-500 px-6 py-4 rounded-lg font-bold text-lg">
+            Pay {intent.amount} {intent.fromCcy} via {intent.rail === 'banksim' ? 'BankSim' : 'UPI'}
+          </button>
+        )}
+        {demo.state === 'RELEASED' && (
+          <div className="mt-6 p-4 border border-emerald-500 rounded">
+            <div className="text-emerald-400 text-xl">✓ Crypto received</div>
+            <div className="text-zinc-400 mt-2">
+              Balance: {demo.balance?.before} → <span className="text-white">{demo.balance?.after}</span> ETH
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Tile 2: State Machine */}
+      <section className="border-b border-zinc-800 p-6">
+        <h2 className="text-zinc-400 uppercase tracking-wider text-xs mb-4">2. Escrow State</h2>
+        <div className="flex flex-col gap-3">
+          {(['INIT', 'LOCKED', 'COMMITTED', 'PAID', 'RELEASED'] as OrderState[]).map((s, i, arr) => {
+            const reached = arr.indexOf(demo.state) >= i;
+            const current = demo.state === s;
+            return (
+              <div key={s} className={`flex items-center gap-3 ${reached ? 'text-white' : 'text-zinc-600'}`}>
+                <div className={`w-3 h-3 rounded-full ${current ? 'bg-blue-500 animate-pulse' : reached ? 'bg-emerald-500' : 'bg-zinc-700'}`} />
+                <span className="text-lg">{s}</span>
+              </div>
+            );
+          })}
+        </div>
+        {demo.orderId && <div className="mt-6 text-xs text-zinc-500">order {demo.orderId}</div>}
+      </section>
+
+      {/* Tile 3: AXL message stream */}
+      <section className="border-r border-zinc-800 p-6 overflow-y-auto">
+        <h2 className="text-zinc-400 uppercase tracking-wider text-xs mb-4">3. AXL P2P Mesh</h2>
+        {axlLog.length === 0 && <div className="text-zinc-600">waiting for messages…</div>}
+        {axlLog.map((e, i) => (
+          <div key={i} className="flex gap-2 mb-1 text-xs">
+            <span className="text-zinc-500">{new Date(e.ts).toISOString().slice(11, 19)}</span>
+            <span className={e.node === 'A' ? 'text-cyan-400' : 'text-violet-400'}>node-{e.node}</span>
+            <span className={e.dir === 'send' ? 'text-orange-400' : 'text-emerald-400'}>{e.dir}</span>
+            <span>{e.type}</span>
+            <span className="text-zinc-600">→ {e.peer.slice(0, 8)}…</span>
+          </div>
+        ))}
+      </section>
+
+      {/* Tile 4: On-chain + evidence */}
+      <section className="p-6">
+        <h2 className="text-zinc-400 uppercase tracking-wider text-xs mb-4">4. On-chain &amp; Evidence</h2>
+        <div className="space-y-3">
+          {demo.lockTx && (
+            <a href={`https://chainscan-galileo.0g.ai/tx/${demo.lockTx}`} target="_blank"
+               className="block p-3 bg-zinc-900 rounded hover:bg-zinc-800">
+              <div className="text-zinc-400 text-xs">Escrow.lock</div>
+              <div className="text-xs font-mono">{demo.lockTx.slice(0, 20)}…</div>
+            </a>
+          )}
+          {demo.releaseTx && (
+            <a href={`https://chainscan-galileo.0g.ai/tx/${demo.releaseTx}`} target="_blank"
+               className="block p-3 bg-zinc-900 rounded hover:bg-zinc-800">
+              <div className="text-emerald-400 text-xs">Escrow.release</div>
+              <div className="text-xs font-mono">{demo.releaseTx.slice(0, 20)}…</div>
+            </a>
+          )}
+          {demo.evidenceRootHash && (
+            <a href={`/api/demo/evidence?root=${demo.evidenceRootHash}`}
+               className="block p-3 border border-purple-600 rounded hover:bg-purple-950">
+              <div className="text-purple-400 text-xs">0G Storage evidence blob</div>
+              <div className="text-xs font-mono">{demo.evidenceRootHash.slice(0, 24)}…</div>
+              <div className="text-xs text-zinc-500 mt-1">click to download &amp; inspect</div>
+            </a>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+```
+
+### 10.6 Demo Backend Glue (`/apps/web/src/app/api/demo/*`)
+
+Three tiny routes back the demo page. They orchestrate the existing pieces — nothing new on the protocol side.
+
+```typescript
+// apps/web/src/app/api/demo/start/route.ts
+// Spins up the buyer flow: RFQ → await quote → LP locks → commit
+import { NextResponse } from 'next/server';
+import { demoSession } from '@/lib/demo-session';
+
+export async function POST(req: Request) {
+  const intent = await req.json();
+  await demoSession.startOrder(intent); // tails AXL + calls agents; sets state machine
+  return NextResponse.json({ ok: true });
+}
+```
+
+```typescript
+// apps/web/src/app/api/demo/pay/route.ts
+// Fires BankSim (demo) or prints UPI QR (prod). Both paths end in KeeperHub webhook.
+import { NextResponse } from 'next/server';
+import { demoSession } from '@/lib/demo-session';
+
+export async function POST() {
+  await demoSession.triggerPayment();
+  return NextResponse.json({ ok: true });
+}
+```
+
+```typescript
+// apps/web/src/app/api/demo/state/route.ts
+// Polled every 500ms by the page. Returns latest demo state + last 40 AXL events.
+import { NextResponse } from 'next/server';
+import { demoSession } from '@/lib/demo-session';
+
+export async function GET() {
+  return NextResponse.json({ demo: demoSession.snapshot(), axl: demoSession.axlTail() });
+}
+```
+
+```typescript
+// apps/web/src/app/api/demo/evidence/route.ts
+// Streams the 0G Storage blob for the given rootHash (pulled via indexer).
+import { NextRequest, NextResponse } from 'next/server';
+import { ZeroGStorage } from '@/../../zerog/storage/client';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+export async function GET(req: NextRequest) {
+  const root = req.nextUrl.searchParams.get('root');
+  if (!root) return new NextResponse('missing root', { status: 400 });
+  const tmp = path.join(os.tmpdir(), `evidence-${root.slice(2, 14)}.json`);
+  const storage = new ZeroGStorage(process.env.PRIVATE_KEY!);
+  await storage.downloadProof(root, tmp);
+  const blob = fs.readFileSync(tmp);
+  fs.unlinkSync(tmp);
+  return new NextResponse(blob, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Disposition': `attachment; filename="evidence-${root.slice(2, 14)}.json"`,
+    },
+  });
+}
+```
+
+The `demoSession` singleton (in `apps/web/src/lib/demo-session.ts`) wraps `FiatAgent`, `CryptoAgent`, and an `AXLMessageHandler` that tees every `send`/`recv` into an in-memory ring buffer so Tile 3 has live data without a websocket layer.
+
+### 10.7 Tiled Launcher (`/scripts/demo-up.sh`)
+
+A single command starts every process the demo needs, in a predictable order, so nothing fumbles on stage.
+
+```bash
+#!/usr/bin/env bash
+# scripts/demo-up.sh — starts all demo processes in tmux panes
+set -euo pipefail
+
+SESSION="aegis-demo"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session  -d -s "$SESSION" -n main -c "$ROOT"
+
+# Pane 0: AXL node A (buyer side)
+tmux send-keys -t "$SESSION":main "cd services/axl-node && ./node -config node-config.json"   C-m
+
+# Pane 1: AXL node B (LP side)
+tmux split-window -h -t "$SESSION":main -c "$ROOT"
+tmux send-keys -t "$SESSION":main.1 "cd services/axl-node && ./node -config node-config-2.json" C-m
+
+# Pane 2: webhook receiver
+tmux split-window -v -t "$SESSION":main.0 -c "$ROOT"
+tmux send-keys -t "$SESSION":main.2 "npx tsx agents/payment-verify/webhook.ts" C-m
+
+# Pane 3: crypto-agent (LP)
+tmux split-window -v -t "$SESSION":main.1 -c "$ROOT"
+tmux send-keys -t "$SESSION":main.3 "npx tsx agents/crypto-agent/index.ts" C-m
+
+# Pane 4: Next.js dev server
+tmux select-pane -t "$SESSION":main.0
+tmux split-window -v -t "$SESSION":main.0 -c "$ROOT/apps/web"
+tmux send-keys -t "$SESSION":main.4 "pnpm dev" C-m
+
+tmux attach -t "$SESSION"
+```
+
+Stop with `tmux kill-session -t aegis-demo` or `scripts/demo-down.sh`.
+
+### 10.8 Demo Runbook
+
+A 3-minute stage script. Rehearse it twice before showtime.
+
+1. **Open** — `http://localhost:3000/demo` on projector. Browser tab 2: `https://chainscan-galileo.0g.ai/address/<ESCROW>`. Browser tab 3: the buyer wallet on 0G explorer.
+2. **"This is an agent-mediated fiat-to-crypto onramp."** Fill the intent: 100 INR → ETH via BankSim. Click Start Order.
+3. **Tile 3 lights up** — point at the `rfq.get` send from node-A and `quote.sign` recv on node-B. *"Two agents just negotiated a quote over a P2P mesh — no central matching engine."*
+4. **Tile 2 advances to LOCKED** — point at Tile 4 `Escrow.lock` tx. Click it → judges see the real on-chain tx on 0G explorer. *"LP's ETH is now locked. If they walk away, they lose their bond."*
+5. **Click Pay** — Tile 3 shows the webhook firing; Tile 4 shows `Escrow.release`; Tile 2 advances to RELEASED.
+6. **Click the purple evidence card** — a real JSON blob downloads from 0G Storage. *"This is the PSP payload, HMAC-signed, permanently stored. Any auditor can replay verification."*
+7. **"Production swap-out"** — flip the rail dropdown to UPI. *"Only the emitter changes. Receiver, verification, storage, escrow — same code."*
+
+### 10.9 Contingency: Pre-recorded Fallback
+
+Live demos fail. The night before, record a 90-second screen capture of a successful run (`QuickTime → File → New Screen Recording`). If the live demo hangs >15 seconds, cut to video with: *"Let me show you what this looks like when the mesh has warmed up."* Judges prefer crisp video to a frozen terminal.
+
+### 10.10 What NOT to Show
+
+- Raw 0G testnet block explorer search bar (looks amateur)
+- Our terminal log tails (no colors, cramped) — the 4 tiles already expose everything
+- The chat UI from §10.3 — it's a stub, confusing next to the demo page
+- The ledger-balance-too-low error on 0G Compute — compute inference is **not** on the demo happy path; don't mention it unless asked
 
 ---
 
