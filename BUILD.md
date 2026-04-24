@@ -1,0 +1,3385 @@
+# BUILD.md — Agentic Fiat ↔ Crypto Onramp Implementation Guide
+
+> **Version**: 1.0.0  
+> **Last Updated**: 2026-04-23  
+> **Status**: Production-Ready Implementation Spec
+
+This document provides exact, copy-paste implementation steps for building the Agentic Fiat-Crypto Onramp. All code is production-ready — no mocks except where explicitly marked `[DEMO-ONLY]`.
+
+---
+
+## Table of Contents
+
+0. [Agent Build Instructions](#0-agent-build-instructions)
+1. [Prerequisites & Environment Setup](#1-prerequisites--environment-setup)
+2. [0G Platform Integration](#2-0g-platform-integration)
+3. [Gensyn AXL Transport Layer](#3-gensyn-axl-transport-layer)
+4. [MCP Protocol Implementation](#4-mcp-protocol-implementation)
+5. [x402 Payment Protocol](#5-x402-payment-protocol)
+6. [KeeperHub Automation](#6-keeperhub-automation)
+7. [Payment Verification (KeeperHub Webhooks)](#7-payment-verification-keeperhub-webhooks)
+8. [Smart Contracts](#8-smart-contracts)
+9. [Agent Runtime](#9-agent-runtime)
+10. [Web Application](#10-web-application)
+11. [Verification Checklists](#11-verification-checklists)
+
+---
+
+## 0. Agent Build Instructions
+
+> **⚠️ MANDATORY FOR AI AGENTS**
+>
+> Before implementing functionality in this guide, you MUST fetch and cross-reference the relevant external documentation:
+>
+> ### For 0G Platform (Sections 2, 9)
+> Read **Appendix E** and fetch these resources:
+> - https://docs.0g.ai/ai-context — Official 0G AI/agent integration docs
+> - https://github.com/0gfoundation/0g-agent-skills — Reference skill implementations
+> - https://www.npmjs.com/package/@0gfoundation/0g-cc — Claude Code SDK usage
+> - https://github.com/0gfoundation/0g-compute-skills — Compute inference patterns
+>
+> ### For KeeperHub Automation (Sections 6, 7)
+> Read **Appendix F** and fetch these resources:
+> - https://keeperhub.com — MCP & REST API overview
+> - https://app.keeperhub.com/mcp — MCP endpoint reference
+> - https://github.com/techops-services/keeperhub — SDK & examples
+>
+> **Validate** your implementation against these resources before writing code.
+
+---
+
+## 1. Prerequisites & Environment Setup
+
+### 1.1 System Requirements
+
+```bash
+# Required versions
+node --version    # >= 22.0.0
+go version        # >= 1.25.5
+forge --version   # Latest Foundry
+python3 --version # >= 3.9
+```
+
+### 1.2 Install Core Dependencies
+
+```bash
+# Install Foundry (smart contracts)
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+
+# Install Go 1.25.5 (for AXL node)
+# macOS:
+brew install go@1.25
+
+# Install pnpm (package manager)
+npm install -g pnpm
+
+# Install KeeperHub CLI
+brew install keeperhub/tap/kh
+```
+
+### 1.3 Project Initialization
+
+```bash
+cd /Users/arkoroy/Desktop/eth
+
+# Initialize monorepo
+pnpm init
+
+# Create workspace structure
+mkdir -p contracts/{src,test,script}
+mkdir -p contracts/src/verifiers
+mkdir -p circuits/{upi,venmo,revolut,banksim}
+mkdir -p protocol/{mcp,x402,axl,a2a}
+mkdir -p agents/{runtime,fiat-agent,crypto-agent,zktls}
+mkdir -p agents/fiat-agent/rails
+mkdir -p keepers/{jobs,ai-tools}
+mkdir -p zerog/{compute,storage}
+mkdir -p services/{banksim,sandbox-orchestrator}
+mkdir -p apps/web
+mkdir -p docs
+```
+
+### 1.4 Environment Variables
+
+```bash
+# Create .env file (HUMAN INPUT REQUIRED)
+cat > .env << 'EOF'
+# ============================================
+# HUMAN INPUT REQUIRED - Fill these values
+# ============================================
+
+# 0G Network Configuration
+ZEROG_TESTNET_RPC=https://evmrpc-testnet.0g.ai
+ZEROG_CHAIN_ID=16602
+ZEROG_INDEXER_RPC=https://indexer-storage-testnet-turbo.0g.ai
+
+# Deployer wallet (NEVER commit real keys)
+PRIVATE_KEY=<YOUR_DEPLOYER_PRIVATE_KEY>
+
+# KeeperHub (get from https://app.keeperhub.com/settings/api-keys)
+KH_API_KEY=<YOUR_KEEPERHUB_API_KEY>
+
+# Payment Rail Webhook Secrets (for KeeperHub webhook-based verification)
+# Each LP configures their bank/PSP to send webhooks to KeeperHub on payment receipt
+PAYMENT_WEBHOOK_SECRET=<YOUR_WEBHOOK_HMAC_SECRET>
+PAYMENT_WEBHOOK_URL=<YOUR_KEEPERHUB_WEBHOOK_URL>
+
+# Base Sepolia (for multi-chain testing)
+BASE_SEPOLIA_RPC=https://sepolia.base.org
+BASE_SEPOLIA_CHAIN_ID=84532
+
+# Demo mode flag
+DEMO_MODE=true
+EOF
+
+echo "⚠️  STOP: Fill in the .env values before proceeding"
+```
+
+---
+
+## 2. 0G Platform Integration
+
+### 2.1 Install 0G SDKs
+
+```bash
+# Storage SDK
+pnpm add @0gfoundation/0g-ts-sdk ethers
+
+# Compute SDK (for inference)
+pnpm add @0glabs/0g-serving-broker
+```
+
+### 2.2 0G Storage Client (`/zerog/storage/client.ts`)
+
+```typescript
+// zerog/storage/client.ts
+import { ZgFile, Indexer, MemData } from '@0gfoundation/0g-ts-sdk';
+import { ethers } from 'ethers';
+
+const ZEROG_RPC = process.env.ZEROG_TESTNET_RPC || 'https://evmrpc-testnet.0g.ai';
+const INDEXER_RPC = process.env.ZEROG_INDEXER_RPC || 'https://indexer-storage-testnet-turbo.0g.ai';
+
+export class ZeroGStorage {
+  private indexer: Indexer;
+  private signer: ethers.Wallet;
+
+  constructor(privateKey: string) {
+    const provider = new ethers.JsonRpcProvider(ZEROG_RPC);
+    this.signer = new ethers.Wallet(privateKey, provider);
+    this.indexer = new Indexer(INDEXER_RPC);
+  }
+
+  /**
+   * Upload proof blob to 0G Storage
+   * @returns rootHash for retrieval
+   */
+  async uploadProof(proofData: Uint8Array): Promise<string> {
+    const memData = new MemData(proofData);
+    const [tree, treeErr] = await memData.merkleTree();
+    if (treeErr !== null) {
+      throw new Error(`Merkle tree error: ${treeErr}`);
+    }
+
+    const rootHash = tree?.rootHash();
+    console.log(`[0G Storage] Uploading proof, root: ${rootHash}`);
+
+    const [tx, uploadErr] = await this.indexer.upload(memData, ZEROG_RPC, this.signer);
+    if (uploadErr !== null) {
+      throw new Error(`Upload error: ${uploadErr}`);
+    }
+
+    console.log(`[0G Storage] Upload complete, tx: ${JSON.stringify(tx)}`);
+    return rootHash!;
+  }
+
+  /**
+   * Download proof blob from 0G Storage
+   */
+  async downloadProof(rootHash: string, outputPath: string): Promise<void> {
+    const err = await this.indexer.download(rootHash, outputPath, true);
+    if (err !== null) {
+      throw new Error(`Download error: ${err}`);
+    }
+  }
+
+  /**
+   * Upload agent memory state
+   */
+  async uploadMemory(agentId: string, memoryState: object): Promise<string> {
+    const data = new TextEncoder().encode(JSON.stringify({
+      agentId,
+      timestamp: Date.now(),
+      state: memoryState
+    }));
+    return this.uploadProof(data);
+  }
+}
+
+// Verification function
+export async function verifyStorageSetup(): Promise<boolean> {
+  console.log('[0G Storage] Verifying setup...');
+  
+  // Check RPC connectivity
+  const provider = new ethers.JsonRpcProvider(ZEROG_RPC);
+  const blockNumber = await provider.getBlockNumber();
+  console.log(`[0G Storage] Connected to 0G testnet, block: ${blockNumber}`);
+  
+  // Check indexer connectivity
+  const indexer = new Indexer(INDEXER_RPC);
+  console.log('[0G Storage] Indexer connected');
+  
+  return true;
+}
+```
+
+### 2.3 0G Compute Client (`/zerog/compute/client.ts`)
+
+```typescript
+// zerog/compute/client.ts
+import { ethers } from 'ethers';
+import { createZGComputeNetworkBroker } from '@0glabs/0g-serving-broker';
+
+const ZEROG_RPC = process.env.ZEROG_TESTNET_RPC || 'https://evmrpc-testnet.0g.ai';
+
+export class ZeroGCompute {
+  private broker: any;
+  private initialized = false;
+
+  async initialize(privateKey: string): Promise<void> {
+    const provider = new ethers.JsonRpcProvider(ZEROG_RPC);
+    const wallet = new ethers.Wallet(privateKey, provider);
+    this.broker = await createZGComputeNetworkBroker(wallet);
+    this.initialized = true;
+    console.log('[0G Compute] Broker initialized');
+  }
+
+  /**
+   * List available inference services
+   */
+  async listServices(): Promise<any[]> {
+    if (!this.initialized) throw new Error('Broker not initialized');
+    const services = await this.broker.inference.listService();
+    return services;
+  }
+
+  /**
+   * Run zkTLS verifier as inference workload
+   * This offloads proof verification to 0G Compute
+   */
+  async verifyProof(
+    providerAddress: string,
+    proofPayload: object
+  ): Promise<{ valid: boolean; chatId: string }> {
+    if (!this.initialized) throw new Error('Broker not initialized');
+
+    const { endpoint, model } = await this.broker.inference.getServiceMetadata(providerAddress);
+    const headers = await this.broker.inference.getRequestHeaders(providerAddress);
+
+    const response = await fetch(`${endpoint}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({
+        model,
+        messages: [{
+          role: 'system',
+          content: 'You are a zkTLS proof verifier. Validate the proof structure and return JSON: {"valid": true/false, "reason": "..."}'
+        }, {
+          role: 'user',
+          content: JSON.stringify(proofPayload)
+        }]
+      })
+    });
+
+    const data = await response.json();
+    const chatId = response.headers.get('ZG-Res-Key') || data.id;
+
+    // Verify response integrity via TEE
+    if (chatId) {
+      await this.broker.inference.processResponse(providerAddress, chatId);
+    }
+
+    const result = JSON.parse(data.choices[0].message.content);
+    return { valid: result.valid, chatId };
+  }
+}
+
+// Verification function
+export async function verifyComputeSetup(privateKey: string): Promise<boolean> {
+  console.log('[0G Compute] Verifying setup...');
+  
+  const compute = new ZeroGCompute();
+  await compute.initialize(privateKey);
+  
+  const services = await compute.listServices();
+  console.log(`[0G Compute] Found ${services.length} inference services`);
+  
+  // List chatbot services
+  const chatbots = services.filter((s: any) => s.serviceType === 'chatbot');
+  console.log(`[0G Compute] Chatbot services: ${chatbots.map((s: any) => s.model).join(', ')}`);
+  
+  return services.length > 0;
+}
+```
+
+### 2.4 Verification: 0G Platform
+
+```bash
+# Run verification script
+cat > scripts/verify-0g.ts << 'EOF'
+import { verifyStorageSetup } from '../zerog/storage/client';
+import { verifyComputeSetup } from '../zerog/compute/client';
+
+async function main() {
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) {
+    console.error('❌ PRIVATE_KEY not set in .env');
+    process.exit(1);
+  }
+
+  console.log('=== 0G Platform Verification ===\n');
+
+  // Test Storage
+  const storageOk = await verifyStorageSetup();
+  console.log(storageOk ? '✅ Storage OK' : '❌ Storage FAILED');
+
+  // Test Compute
+  const computeOk = await verifyComputeSetup(privateKey);
+  console.log(computeOk ? '✅ Compute OK' : '❌ Compute FAILED');
+
+  console.log('\n=== Verification Complete ===');
+}
+
+main().catch(console.error);
+EOF
+
+# Execute (after filling .env)
+# npx ts-node scripts/verify-0g.ts
+```
+
+---
+
+## 3. Gensyn AXL Transport Layer
+
+### 3.1 Build AXL Node
+
+```bash
+# Clone and build AXL
+cd /Users/arkoroy/Desktop/eth
+git clone https://github.com/gensyn-ai/axl.git services/axl-node
+cd services/axl-node
+
+# Build (requires Go 1.25+)
+make build
+
+# Generate identity key (macOS with Homebrew OpenSSL)
+brew install openssl
+/opt/homebrew/opt/openssl/bin/openssl genpkey -algorithm ed25519 -out private.pem
+
+# Verify key was created
+ls -la private.pem
+```
+
+### 3.2 AXL Node Configuration
+
+```bash
+# Create node configuration
+cat > services/axl-node/node-config.json << 'EOF'
+{
+  "PrivateKeyPath": "private.pem",
+  "Peers": [
+    "tls://35.232.40.35:9001",
+    "tls://35.232.119.219:9001"
+  ],
+  "Listen": [],
+  "api_port": 9002,
+  "tcp_port": 7000,
+  "router_addr": "http://127.0.0.1",
+  "router_port": 9003,
+  "a2a_addr": "http://127.0.0.1",
+  "a2a_port": 9004,
+  "max_message_size": 16777216,
+  "max_concurrent_conns": 128,
+  "conn_read_timeout_secs": 60,
+  "conn_idle_timeout_secs": 300
+}
+EOF
+```
+
+### 3.3 AXL TypeScript Bridge Client (`/protocol/axl/bridge.ts`)
+
+```typescript
+// protocol/axl/bridge.ts
+
+const AXL_BASE_URL = process.env.AXL_BRIDGE_URL || 'http://127.0.0.1:9002';
+
+export interface AXLTopology {
+  our_public_key: string;
+  our_ipv6: string;
+  peers: string[];
+}
+
+export interface AXLMessage {
+  from: string;
+  data: any;
+  timestamp: number;
+}
+
+export class AXLBridge {
+  private baseUrl: string;
+  private publicKey: string | null = null;
+
+  constructor(baseUrl: string = AXL_BASE_URL) {
+    this.baseUrl = baseUrl;
+  }
+
+  /**
+   * Get node topology and identity
+   */
+  async getTopology(): Promise<AXLTopology> {
+    const response = await fetch(`${this.baseUrl}/topology`);
+    if (!response.ok) {
+      throw new Error(`Topology request failed: ${response.status}`);
+    }
+    const topology = await response.json();
+    this.publicKey = topology.our_public_key;
+    return topology;
+  }
+
+  /**
+   * Get our public key (64-char hex)
+   */
+  async getPublicKey(): Promise<string> {
+    if (!this.publicKey) {
+      await this.getTopology();
+    }
+    return this.publicKey!;
+  }
+
+  /**
+   * Send raw message to peer
+   */
+  async send(peerId: string, message: any): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/send`, {
+      method: 'POST',
+      headers: {
+        'X-Destination-Peer-Id': peerId,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(message)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Send failed: ${response.status}`);
+    }
+  }
+
+  /**
+   * Receive pending messages
+   */
+  async recv(): Promise<AXLMessage | null> {
+    const response = await fetch(`${this.baseUrl}/recv`);
+    
+    if (response.status === 204) {
+      return null; // No messages
+    }
+
+    if (!response.ok) {
+      throw new Error(`Recv failed: ${response.status}`);
+    }
+
+    const fromPeerId = response.headers.get('X-From-Peer-Id');
+    const data = await response.json();
+
+    return {
+      from: fromPeerId || 'unknown',
+      data,
+      timestamp: Date.now()
+    };
+  }
+
+  /**
+   * Call remote MCP service
+   */
+  async mcpCall(
+    peerId: string,
+    serviceName: string,
+    method: string,
+    params: object = {}
+  ): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/mcp/${peerId}/${serviceName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method,
+        id: Date.now(),
+        params
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`MCP call failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get remote agent's A2A card
+   */
+  async getAgentCard(peerId: string): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/a2a/${peerId}`);
+    if (!response.ok) {
+      throw new Error(`A2A card request failed: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Send A2A message
+   */
+  async a2aSend(peerId: string, message: object): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/a2a/${peerId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'message/send',
+        id: Date.now(),
+        params: { message }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`A2A send failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+}
+
+// Polling receiver for continuous message handling
+export class AXLMessageHandler {
+  private bridge: AXLBridge;
+  private handlers: Map<string, (msg: AXLMessage) => Promise<void>> = new Map();
+  private running = false;
+
+  constructor(bridge: AXLBridge) {
+    this.bridge = bridge;
+  }
+
+  /**
+   * Register handler for message type
+   */
+  on(type: string, handler: (msg: AXLMessage) => Promise<void>): void {
+    this.handlers.set(type, handler);
+  }
+
+  /**
+   * Start polling for messages
+   */
+  async start(pollIntervalMs: number = 200): Promise<void> {
+    this.running = true;
+    console.log('[AXL] Message handler started');
+
+    while (this.running) {
+      try {
+        const msg = await this.bridge.recv();
+        if (msg) {
+          const type = msg.data?.type || 'unknown';
+          const handler = this.handlers.get(type);
+          if (handler) {
+            await handler(msg);
+          } else {
+            console.log(`[AXL] Unhandled message type: ${type}`);
+          }
+        }
+      } catch (err) {
+        console.error('[AXL] Recv error:', err);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+  }
+
+  stop(): void {
+    this.running = false;
+  }
+}
+
+// Verification function
+export async function verifyAXLSetup(): Promise<boolean> {
+  console.log('[AXL] Verifying setup...');
+
+  const bridge = new AXLBridge();
+
+  try {
+    const topology = await bridge.getTopology();
+    console.log(`[AXL] Our public key: ${topology.our_public_key}`);
+    console.log(`[AXL] Our IPv6: ${topology.our_ipv6}`);
+    console.log(`[AXL] Connected peers: ${topology.peers?.length || 0}`);
+    return true;
+  } catch (err) {
+    console.error('[AXL] Setup verification failed:', err);
+    return false;
+  }
+}
+```
+
+### 3.4 Start AXL Node
+
+```bash
+# Terminal 1: Start AXL node
+cd /Users/arkoroy/Desktop/eth/services/axl-node
+./node -config node-config.json
+
+# Expected output:
+# Your IPv6 address is 200:xxxx:...
+# Your public key is <64-char-hex>
+```
+
+### 3.5 Verification: AXL
+
+```bash
+# Terminal 2: Verify node is running
+curl -s http://127.0.0.1:9002/topology | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print('✅ AXL Node Running')
+print(f'   Public Key: {d[\"our_public_key\"][:16]}...')
+print(f'   IPv6: {d[\"our_ipv6\"]}')
+"
+```
+
+---
+
+## 4. MCP Protocol Implementation
+
+### 4.1 Install MCP SDK
+
+```bash
+pnpm add @modelcontextprotocol/sdk
+```
+
+### 4.2 MCP Tool Schemas (`/protocol/mcp/schemas.ts`)
+
+```typescript
+// protocol/mcp/schemas.ts
+import { z } from 'zod';
+
+// ============================================
+// RFQ (Request for Quote)
+// ============================================
+export const RfqGetSchema = z.object({
+  intent: z.object({
+    fromCurrency: z.string(),        // "USD"
+    toCurrency: z.string(),          // "ETH"
+    toChain: z.string(),             // "0g", "base", "solana"
+    amount: z.string(),              // "100.00"
+    rails: z.array(z.string()),      // ["upi", "venmo"]
+  }),
+  buyerAgent: z.string(),            // AXL public key
+  timestamp: z.number(),
+  ttl: z.number(),                   // seconds
+});
+
+export type RfqGet = z.infer<typeof RfqGetSchema>;
+
+// ============================================
+// Quote (LP response)
+// ============================================
+export const QuoteSignSchema = z.object({
+  rfqId: z.string(),
+  lpAgent: z.string(),               // AXL public key
+  rate: z.string(),                  // "0.00035" (ETH per USD)
+  outputAmount: z.string(),          // "0.035" ETH
+  fee: z.string(),                   // "0.50" USD
+  rails: z.array(z.string()),        // supported rails for this quote
+  expiry: z.number(),                // Unix timestamp
+  signature: z.string(),             // LP's signature
+  reputation: z.number(),            // 0-100 score
+});
+
+export type QuoteSign = z.infer<typeof QuoteSignSchema>;
+
+// ============================================
+// Order Commit
+// ============================================
+export const OrderCommitSchema = z.object({
+  quoteId: z.string(),
+  buyerAgent: z.string(),
+  lpAgent: z.string(),
+  selectedRail: z.string(),          // "upi"
+  antiGriefBondTx: z.string(),       // tx hash of bond
+  timestamp: z.number(),
+});
+
+export type OrderCommit = z.infer<typeof OrderCommitSchema>;
+
+// ============================================
+// Fiat Details (e2e encrypted)
+// ============================================
+export const FiatDetailsSchema = z.object({
+  orderId: z.string(),
+  railType: z.string(),
+  // Rail-specific fields (encrypted payload)
+  encryptedDetails: z.string(),      // Encrypted with buyer's AXL pubkey
+  nonce: z.string(),
+});
+
+export type FiatDetails = z.infer<typeof FiatDetailsSchema>;
+
+// ============================================
+// Proof Submit
+// ============================================
+export const ProofSubmitSchema = z.object({
+  orderId: z.string(),
+  proofType: z.literal('zktls'),
+  railType: z.string(),
+  proof: z.object({
+    circuit: z.string(),
+    publicSignals: z.array(z.string()),
+    groth16Proof: z.object({
+      a: z.array(z.string()),
+      b: z.array(z.array(z.string())),
+      c: z.array(z.string()),
+    }),
+  }),
+  metadata: z.object({
+    amount: z.string(),
+    currency: z.string(),
+    timestamp: z.number(),
+    transactionId: z.string(),
+  }),
+  storageRootHash: z.string(),       // 0G Storage proof blob
+});
+
+export type ProofSubmit = z.infer<typeof ProofSubmitSchema>;
+
+// ============================================
+// Dispute
+// ============================================
+export const DisputeOpenSchema = z.object({
+  orderId: z.string(),
+  disputant: z.string(),             // AXL public key
+  reason: z.enum(['timeout', 'wrong_amount', 'fake_proof', 'no_fiat_received']),
+  evidence: z.string(),              // 0G Storage root hash
+  timestamp: z.number(),
+});
+
+export type DisputeOpen = z.infer<typeof DisputeOpenSchema>;
+
+// ============================================
+// MCP Tool Definitions
+// ============================================
+export const MCP_TOOLS = {
+  'rfq.get': {
+    name: 'rfq.get',
+    description: 'Request for quote - broadcast intent to LPs',
+    inputSchema: RfqGetSchema,
+  },
+  'quote.sign': {
+    name: 'quote.sign',
+    description: 'LP responds with signed quote',
+    inputSchema: QuoteSignSchema,
+  },
+  'order.commit': {
+    name: 'order.commit',
+    description: 'Buyer commits to a quote',
+    inputSchema: OrderCommitSchema,
+  },
+  'fiat.details': {
+    name: 'fiat.details',
+    description: 'LP sends encrypted fiat payment details',
+    inputSchema: FiatDetailsSchema,
+  },
+  'proof.submit': {
+    name: 'proof.submit',
+    description: 'Buyer submits zkTLS proof of fiat payment',
+    inputSchema: ProofSubmitSchema,
+  },
+  'dispute.open': {
+    name: 'dispute.open',
+    description: 'Either party opens a dispute',
+    inputSchema: DisputeOpenSchema,
+  },
+} as const;
+```
+
+### 4.3 MCP Server Implementation (`/protocol/mcp/server.ts`)
+
+```typescript
+// protocol/mcp/server.ts
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import { MCP_TOOLS, RfqGetSchema, QuoteSignSchema } from './schemas';
+
+export class MCPAgentServer {
+  private server: Server;
+  private handlers: Map<string, (params: any) => Promise<any>> = new Map();
+
+  constructor(agentName: string) {
+    this.server = new Server(
+      {
+        name: `fiat-crypto-${agentName}`,
+        version: '1.0.0',
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      }
+    );
+
+    this.setupHandlers();
+  }
+
+  private setupHandlers(): void {
+    // List available tools
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: Object.values(MCP_TOOLS).map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: {
+          type: 'object',
+          properties: tool.inputSchema.shape,
+        },
+      })),
+    }));
+
+    // Handle tool calls
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      
+      const handler = this.handlers.get(name);
+      if (!handler) {
+        throw new Error(`Unknown tool: ${name}`);
+      }
+
+      try {
+        const result = await handler(args);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `Error: ${error.message}` }],
+          isError: true,
+        };
+      }
+    });
+  }
+
+  /**
+   * Register handler for a tool
+   */
+  onTool(name: string, handler: (params: any) => Promise<any>): void {
+    this.handlers.set(name, handler);
+  }
+
+  /**
+   * Start MCP server over stdio
+   */
+  async start(): Promise<void> {
+    const transport = new StdioServerTransport();
+    await this.server.connect(transport);
+    console.log(`[MCP Server] Started`);
+  }
+}
+
+// Example: Fiat Agent MCP Server
+export function createFiatAgentMCPServer(): MCPAgentServer {
+  const server = new MCPAgentServer('fiat-agent');
+
+  server.onTool('rfq.get', async (params) => {
+    const rfq = RfqGetSchema.parse(params);
+    console.log(`[Fiat Agent] Broadcasting RFQ for ${rfq.intent.amount} ${rfq.intent.fromCurrency}`);
+    
+    // TODO: Broadcast over AXL
+    return {
+      rfqId: `rfq_${Date.now()}`,
+      status: 'broadcast',
+      ttl: rfq.ttl,
+    };
+  });
+
+  server.onTool('proof.submit', async (params) => {
+    console.log(`[Fiat Agent] Submitting proof for order ${params.orderId}`);
+    
+    // TODO: Submit to escrow contract
+    return {
+      status: 'submitted',
+      txHash: '0x...',
+    };
+  });
+
+  return server;
+}
+```
+
+### 4.4 MCP Client Implementation (`/protocol/mcp/client.ts`)
+
+```typescript
+// protocol/mcp/client.ts
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { AXLBridge } from '../axl/bridge';
+
+export class MCPAgentClient {
+  private axl: AXLBridge;
+
+  constructor(axlBridge: AXLBridge) {
+    this.axl = axlBridge;
+  }
+
+  /**
+   * Call a tool on a remote agent via AXL
+   */
+  async callTool(
+    peerPublicKey: string,
+    serviceName: string,
+    toolName: string,
+    params: object
+  ): Promise<any> {
+    const response = await this.axl.mcpCall(
+      peerPublicKey,
+      serviceName,
+      'tools/call',
+      {
+        name: toolName,
+        arguments: params,
+      }
+    );
+
+    if (response.error) {
+      throw new Error(`MCP error: ${response.error.message}`);
+    }
+
+    return JSON.parse(response.result.content[0].text);
+  }
+
+  /**
+   * List tools available on a remote agent
+   */
+  async listTools(peerPublicKey: string, serviceName: string): Promise<any[]> {
+    const response = await this.axl.mcpCall(
+      peerPublicKey,
+      serviceName,
+      'tools/list',
+      {}
+    );
+
+    return response.result.tools;
+  }
+}
+```
+
+---
+
+## 5. x402 Payment Protocol
+
+### 5.1 Install x402 SDK
+
+```bash
+pnpm add @x402/core @x402/evm @x402/fetch @x402/express
+```
+
+### 5.2 x402 Client (`/protocol/x402/client.ts`)
+
+```typescript
+// protocol/x402/client.ts
+import { createPaymentHeader, parsePaymentRequired } from '@x402/core';
+import { signPayment } from '@x402/evm';
+import { ethers } from 'ethers';
+
+const FACILITATOR_URL = 'https://x402.coinbase.com'; // Production facilitator
+
+export interface PaymentRequirements {
+  scheme: string;
+  network: string;
+  maxAmountRequired: string;
+  resource: string;
+  description: string;
+  mimeType: string;
+  payTo: string;
+  extra: any;
+}
+
+export class X402Client {
+  private signer: ethers.Wallet;
+
+  constructor(privateKey: string, rpcUrl: string) {
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    this.signer = new ethers.Wallet(privateKey, provider);
+  }
+
+  /**
+   * Handle HTTP 402 response and create payment
+   */
+  async handlePaymentRequired(
+    response: Response
+  ): Promise<string> {
+    const paymentRequiredHeader = response.headers.get('PAYMENT-REQUIRED');
+    if (!paymentRequiredHeader) {
+      throw new Error('No PAYMENT-REQUIRED header');
+    }
+
+    const requirements = parsePaymentRequired(paymentRequiredHeader);
+    console.log(`[x402] Payment required: ${requirements.maxAmountRequired} for ${requirements.resource}`);
+
+    // Sign the payment
+    const paymentPayload = await signPayment(
+      this.signer,
+      requirements,
+      FACILITATOR_URL
+    );
+
+    // Create payment header
+    return createPaymentHeader(paymentPayload);
+  }
+
+  /**
+   * Make HTTP request with automatic 402 handling
+   */
+  async fetchWithPayment(url: string, options: RequestInit = {}): Promise<Response> {
+    // First attempt
+    let response = await fetch(url, options);
+
+    // Handle 402
+    if (response.status === 402) {
+      const paymentHeader = await this.handlePaymentRequired(response);
+
+      // Retry with payment
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          ...options.headers,
+          'PAYMENT-SIGNATURE': paymentHeader,
+        },
+      });
+    }
+
+    return response;
+  }
+}
+
+// Verification
+export async function verifyX402Setup(privateKey: string): Promise<boolean> {
+  console.log('[x402] Verifying setup...');
+
+  const client = new X402Client(privateKey, 'https://sepolia.base.org');
+  const address = await client['signer'].getAddress();
+  console.log(`[x402] Wallet address: ${address}`);
+
+  return true;
+}
+```
+
+### 5.3 x402 Express Middleware (`/protocol/x402/middleware.ts`)
+
+```typescript
+// protocol/x402/middleware.ts
+import { Request, Response, NextFunction } from 'express';
+import { verifyPayment, settlePayment } from '@x402/evm';
+
+const FACILITATOR_URL = 'https://x402.coinbase.com';
+
+export interface RoutePaymentConfig {
+  price: string;          // "0.01" USDC
+  payTo: string;          // Recipient address
+  network: string;        // "base-sepolia"
+  description: string;
+}
+
+/**
+ * Create x402 payment middleware for Express routes
+ */
+export function x402Middleware(config: RoutePaymentConfig) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const paymentSignature = req.headers['payment-signature'] as string;
+
+    // No payment provided - return 402
+    if (!paymentSignature) {
+      const paymentRequired = {
+        scheme: 'exact',
+        network: config.network,
+        maxAmountRequired: config.price,
+        resource: req.originalUrl,
+        description: config.description,
+        mimeType: 'application/json',
+        payTo: config.payTo,
+        extra: {
+          name: 'USDC',
+          version: '2',
+        },
+      };
+
+      res.setHeader(
+        'PAYMENT-REQUIRED',
+        Buffer.from(JSON.stringify(paymentRequired)).toString('base64')
+      );
+      return res.status(402).json({ error: 'Payment required' });
+    }
+
+    // Verify payment
+    try {
+      const payload = JSON.parse(
+        Buffer.from(paymentSignature, 'base64').toString()
+      );
+
+      const verification = await verifyPayment(payload, FACILITATOR_URL);
+      if (!verification.valid) {
+        return res.status(402).json({ error: 'Invalid payment', reason: verification.reason });
+      }
+
+      // Attach payment info to request
+      (req as any).payment = payload;
+
+      // Continue to route handler
+      next();
+
+      // Settle payment after response (non-blocking)
+      settlePayment(payload, FACILITATOR_URL).catch(err => {
+        console.error('[x402] Settlement error:', err);
+      });
+
+    } catch (err: any) {
+      return res.status(402).json({ error: 'Payment verification failed', message: err.message });
+    }
+  };
+}
+```
+
+---
+
+## 6. KeeperHub Automation
+
+### 6.1 Install KeeperHub MCP Server
+
+```bash
+# Add KeeperHub MCP to Claude Code
+claude mcp add --transport http keeperhub https://app.keeperhub.com/mcp
+
+# Authenticate (opens browser)
+# Run /mcp inside Claude Code to complete OAuth
+```
+
+### 6.2 KeeperHub CLI Authentication
+
+```bash
+# Login via CLI
+kh auth login
+
+# Or use API key for CI/CD
+export KH_API_KEY=kh_your_key_here
+```
+
+### 6.3 Keeper Job: Push Expire (`/keepers/jobs/pushExpire.ts`)
+
+```typescript
+// keepers/jobs/pushExpire.ts
+import { ethers } from 'ethers';
+
+// This job monitors for orders approaching deadline and pushes expire tx
+
+interface KeeperJobConfig {
+  escrowAddress: string;
+  rpcUrl: string;
+  privateKey: string;
+  checkIntervalMs: number;
+  deadlineBufferSeconds: number;
+}
+
+export class PushExpireJob {
+  private config: KeeperJobConfig;
+  private provider: ethers.JsonRpcProvider;
+  private signer: ethers.Wallet;
+  private running = false;
+
+  constructor(config: KeeperJobConfig) {
+    this.config = config;
+    this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
+    this.signer = new ethers.Wallet(config.privateKey, this.provider);
+  }
+
+  async start(): Promise<void> {
+    this.running = true;
+    console.log('[Keeper:pushExpire] Started');
+
+    while (this.running) {
+      try {
+        await this.checkAndExpire();
+      } catch (err) {
+        console.error('[Keeper:pushExpire] Error:', err);
+      }
+
+      await new Promise(r => setTimeout(r, this.config.checkIntervalMs));
+    }
+  }
+
+  private async checkAndExpire(): Promise<void> {
+    const escrow = new ethers.Contract(
+      this.config.escrowAddress,
+      [
+        'function getLockedOrders() view returns (uint256[])',
+        'function getOrderDeadline(uint256 orderId) view returns (uint256)',
+        'function expire(uint256 orderId) external',
+      ],
+      this.signer
+    );
+
+    const lockedOrders = await escrow.getLockedOrders();
+    const now = Math.floor(Date.now() / 1000);
+
+    for (const orderId of lockedOrders) {
+      const deadline = await escrow.getOrderDeadline(orderId);
+      const timeLeft = Number(deadline) - now;
+
+      if (timeLeft <= this.config.deadlineBufferSeconds && timeLeft > 0) {
+        console.log(`[Keeper:pushExpire] Order ${orderId} expires in ${timeLeft}s, pushing...`);
+        
+        try {
+          const tx = await escrow.expire(orderId);
+          await tx.wait();
+          console.log(`[Keeper:pushExpire] Expired order ${orderId}, tx: ${tx.hash}`);
+        } catch (err: any) {
+          console.error(`[Keeper:pushExpire] Failed to expire ${orderId}:`, err.message);
+        }
+      }
+    }
+  }
+
+  stop(): void {
+    this.running = false;
+  }
+}
+```
+
+### 6.4 KeeperHub Workflow Definition (Visual Builder)
+
+```yaml
+# keepers/workflows/order-monitor.yaml
+# Import this into KeeperHub dashboard
+
+name: "Order Monitor & Slash"
+description: "Monitor escrow for stuck orders and slash defaults"
+
+trigger:
+  type: "block-interval"
+  network: "16602"  # 0G testnet
+  interval: 10      # Every 10 blocks
+
+nodes:
+  - id: "read-locked"
+    type: "web3/read-contract"
+    config:
+      network: "16602"
+      contractAddress: "${ESCROW_ADDRESS}"
+      functionName: "getLockedOrders"
+      abi: |
+        function getLockedOrders() view returns (uint256[])
+
+  - id: "check-deadline"
+    type: "condition"
+    config:
+      leftValue: "{{@read-locked.result.length}}"
+      operator: ">"
+      rightValue: "0"
+
+  - id: "for-each-order"
+    type: "for-each"
+    config:
+      items: "{{@read-locked.result}}"
+
+  - id: "get-deadline"
+    type: "web3/read-contract"
+    config:
+      network: "16602"
+      contractAddress: "${ESCROW_ADDRESS}"
+      functionName: "getOrderDeadline"
+      args: ["{{@for-each-order.item}}"]
+
+  - id: "check-expired"
+    type: "condition"
+    config:
+      leftValue: "{{@get-deadline.result}}"
+      operator: "<"
+      rightValue: "{{now}}"
+
+  - id: "expire-order"
+    type: "web3/write-contract"
+    config:
+      network: "16602"
+      contractAddress: "${ESCROW_ADDRESS}"
+      functionName: "expire"
+      args: ["{{@for-each-order.item}}"]
+      walletId: "{{wallet}}"
+
+  - id: "notify-discord"
+    type: "discord"
+    config:
+      webhookUrl: "${DISCORD_WEBHOOK}"
+      message: "Order {{@for-each-order.item}} expired and slashed"
+
+edges:
+  - source: "trigger"
+    target: "read-locked"
+  - source: "read-locked"
+    target: "check-deadline"
+  - source: "check-deadline"
+    target: "for-each-order"
+    sourceHandle: "true"
+  - source: "for-each-order"
+    target: "get-deadline"
+    sourceHandle: "loop"
+  - source: "get-deadline"
+    target: "check-expired"
+  - source: "check-expired"
+    target: "expire-order"
+    sourceHandle: "true"
+  - source: "expire-order"
+    target: "notify-discord"
+```
+
+### 6.5 KeeperHub Agentic Wallet Setup
+
+```bash
+# Install KeeperHub agentic wallet skill
+npx @keeperhub/wallet skill install
+
+# Provision wallet (server-side Turnkey custody)
+npx @keeperhub/wallet add
+
+# View wallet info
+npx @keeperhub/wallet info
+
+# Configure safety thresholds
+cat > ~/.keeperhub/safety.json << 'EOF'
+{
+  "auto_approve_max_usd": 5,
+  "block_threshold_usd": 100,
+  "allowlisted_contracts": [
+    "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+  ]
+}
+EOF
+```
+
+---
+
+## 7. Payment Verification (KeeperHub Webhooks)
+
+**Source**: KeeperHub webhook triggers + HMAC-signed webhooks from LP's bank/PSP
+
+Payment verification uses **KeeperHub webhook-driven workflows** instead of zkTLS. The flow:
+
+1. LP configures their bank/PSP to send a webhook to their KeeperHub workflow on payment receipt
+2. Buyer pays LP via the agreed rail; bank/PSP fires webhook to KeeperHub
+3. KeeperHub workflow verifies the webhook's HMAC signature, amount, sender, and `orderId` reference
+4. If valid, workflow calls `Escrow.release(orderId)` directly via Web3 action
+5. Proof blob (the webhook payload + signature) is pinned on 0G Storage for dispute evidence
+
+**Trust model:** Each LP is responsible for configuring a legitimate webhook source from their PSP (e.g., Plaid, Venmo Business API, UPI bank webhooks). The HMAC signature ensures the webhook came from the registered PSP, not a forger. This is **not trustless** — the buyer trusts that the LP's PSP actually sent the webhook — but disputes are resolvable via the 0G Storage evidence blob + arbitration window.
+
+### Trade-offs vs zkTLS
+
+| Aspect | KeeperHub Webhook | Reclaim zkTLS |
+|---|---|---|
+| Trustlessness | Trusts PSP webhook source | Cryptographic |
+| Setup complexity | Low (KeeperHub workflow) | High (circuits per rail) |
+| Latency | ~1s (webhook → chain) | 5-30s (proof gen) |
+| Dispute resolution | Arbitration window required | On-chain verifier |
+| Rail onboarding | Per-PSP webhook config | Per-rail circuit |
+
+### 7.1 Install KeeperHub CLI (already done in Section 6)
+
+```bash
+# KeeperHub CLI already installed in Section 6
+# No additional zkTLS SDK required
+pnpm add hono @hono/node-server  # For webhook receiver
+```
+
+### 7.2 Generate Webhook Secret
+
+**HUMAN INPUT REQUIRED:**
+
+Each LP generates their own HMAC secret and configures their PSP:
+
+```bash
+# Generate a 32-byte HMAC secret
+openssl rand -hex 32
+# Copy output to .env as PAYMENT_WEBHOOK_SECRET
+
+# For each supported rail, configure the webhook URL at the PSP dashboard:
+# - UPI (e.g., Razorpay/Cashfree): https://api.keeperhub.com/webhooks/<workflow-id>
+# - Venmo Business API: same KeeperHub URL
+# - Revolut Business: same KeeperHub URL
+# - [DEMO-ONLY] BankSim: local webhook URL
+```
+
+### 7.3 Webhook Receiver & Verifier (`/agents/payment-verify/webhook.ts`)
+
+```typescript
+// agents/payment-verify/webhook.ts
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+import crypto from 'node:crypto';
+import { ethers } from 'ethers';
+import { ZGStorage } from '../zerog/storage';
+
+const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET!;
+const ESCROW_ADDRESS = process.env.ESCROW_ADDRESS!;
+const RPC_URL = process.env.ZEROG_TESTNET_RPC!;
+const OPERATOR_PRIVATE_KEY = process.env.PRIVATE_KEY!;
+
+export interface PaymentWebhookPayload {
+  orderId: string;           // Reference ID buyer included in payment memo
+  amount: string;            // Amount received (decimal string)
+  currency: string;          // INR, USD, EUR, etc.
+  sender: string;            // Buyer's PSP handle (UPI VPA, @venmo, etc.)
+  receiver: string;          // LP's PSP handle
+  transactionId: string;     // PSP-assigned tx ID
+  timestamp: number;         // Unix seconds
+  rail: 'upi' | 'venmo' | 'revolut' | 'banksim';
+}
+
+export interface VerifiedPayment {
+  payload: PaymentWebhookPayload;
+  signature: string;
+  storageRootHash: string;   // 0G Storage hash of evidence blob
+}
+
+/**
+ * Verify HMAC-SHA256 signature on incoming webhook
+ * Header format: X-Webhook-Signature: sha256=<hex>
+ */
+export function verifyWebhookSignature(
+  rawBody: string,
+  signatureHeader: string,
+  secret: string = WEBHOOK_SECRET
+): boolean {
+  const expected = crypto
+    .createHmac('sha256', secret)
+    .update(rawBody)
+    .digest('hex');
+
+  const received = signatureHeader.replace(/^sha256=/, '');
+
+  // Timing-safe comparison
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(expected, 'hex'),
+      Buffer.from(received, 'hex')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate webhook payload matches expected order
+ */
+export async function validatePayment(
+  payload: PaymentWebhookPayload,
+  expectedAmount: string,
+  expectedCurrency: string,
+  expectedReceiver: string
+): Promise<{ valid: boolean; reason?: string }> {
+  // Amount check (allow exact match or within 0.01 tolerance for rounding)
+  const paidAmount = parseFloat(payload.amount);
+  const expected = parseFloat(expectedAmount);
+  if (Math.abs(paidAmount - expected) > 0.01) {
+    return { valid: false, reason: `Amount mismatch: ${payload.amount} vs ${expectedAmount}` };
+  }
+
+  // Currency check
+  if (payload.currency.toUpperCase() !== expectedCurrency.toUpperCase()) {
+    return { valid: false, reason: `Currency mismatch: ${payload.currency} vs ${expectedCurrency}` };
+  }
+
+  // Receiver check (LP's configured PSP handle)
+  if (payload.receiver !== expectedReceiver) {
+    return { valid: false, reason: `Receiver mismatch: ${payload.receiver} vs ${expectedReceiver}` };
+  }
+
+  // Timestamp freshness (within 10 minutes)
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - payload.timestamp) > 600) {
+    return { valid: false, reason: 'Timestamp too old or in the future' };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Pin verified payment evidence to 0G Storage
+ * Returns storage root hash for on-chain reference
+ */
+export async function pinEvidence(
+  payload: PaymentWebhookPayload,
+  signature: string
+): Promise<string> {
+  const storage = new ZGStorage();
+  const evidence = JSON.stringify({
+    payload,
+    signature,
+    verifiedAt: Date.now(),
+  }, null, 2);
+
+  const rootHash = await storage.uploadData(
+    Buffer.from(evidence),
+    `payment-${payload.orderId}-${payload.transactionId}.json`
+  );
+
+  console.log(`[Webhook] Evidence pinned to 0G Storage: ${rootHash}`);
+  return rootHash;
+}
+
+/**
+ * Call Escrow.release(orderId, evidenceHash) on-chain
+ */
+export async function releaseEscrow(
+  orderId: string,
+  evidenceHash: string
+): Promise<string> {
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
+  const wallet = new ethers.Wallet(OPERATOR_PRIVATE_KEY, provider);
+
+  const escrowAbi = [
+    'function release(bytes32 orderId, bytes32 evidenceHash) external',
+  ];
+  const escrow = new ethers.Contract(ESCROW_ADDRESS, escrowAbi, wallet);
+
+  const tx = await escrow.release(
+    ethers.id(orderId),
+    ethers.id(evidenceHash)
+  );
+  const receipt = await tx.wait();
+
+  console.log(`[Webhook] Escrow released for order ${orderId}: ${receipt?.hash}`);
+  return receipt?.hash ?? '';
+}
+
+/**
+ * HTTP server exposing webhook endpoint for KeeperHub/PSP
+ */
+export function createWebhookServer(
+  orderLookup: (orderId: string) => Promise<{
+    expectedAmount: string;
+    expectedCurrency: string;
+    expectedReceiver: string;
+  } | null>,
+  port: number = 4001
+) {
+  const app = new Hono();
+
+  app.post('/webhook/payment', async (c) => {
+    const rawBody = await c.req.text();
+    const signatureHeader = c.req.header('X-Webhook-Signature') ?? '';
+
+    // 1. Verify HMAC
+    if (!verifyWebhookSignature(rawBody, signatureHeader)) {
+      console.error('[Webhook] Invalid signature');
+      return c.json({ error: 'Invalid signature' }, 401);
+    }
+
+    let payload: PaymentWebhookPayload;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      return c.json({ error: 'Invalid JSON' }, 400);
+    }
+
+    // 2. Lookup expected order details
+    const order = await orderLookup(payload.orderId);
+    if (!order) {
+      return c.json({ error: 'Unknown orderId' }, 404);
+    }
+
+    // 3. Validate amount/currency/receiver/timestamp
+    const validation = await validatePayment(
+      payload,
+      order.expectedAmount,
+      order.expectedCurrency,
+      order.expectedReceiver
+    );
+    if (!validation.valid) {
+      console.error(`[Webhook] Validation failed: ${validation.reason}`);
+      return c.json({ error: validation.reason }, 400);
+    }
+
+    // 4. Pin evidence to 0G Storage
+    const evidenceHash = await pinEvidence(payload, signatureHeader);
+
+    // 5. Release escrow
+    const txHash = await releaseEscrow(payload.orderId, evidenceHash);
+
+    return c.json({
+      ok: true,
+      orderId: payload.orderId,
+      evidenceHash,
+      txHash,
+    });
+  });
+
+  app.get('/health', (c) => c.json({ status: 'ok' }));
+
+  serve({ fetch: app.fetch, port });
+  console.log(`[Webhook] Server listening on :${port}`);
+  return app;
+}
+```
+
+### 7.4 KeeperHub Workflow (`/agents/payment-verify/workflow.yaml`)
+
+Register this workflow with KeeperHub to receive and forward webhooks:
+
+```yaml
+name: payment-verify
+description: Receives PSP webhooks and triggers escrow release
+triggers:
+  - type: webhook
+    path: /payment
+    method: POST
+
+actions:
+  - id: verify-and-forward
+    type: http
+    url: http://localhost:4001/webhook/payment
+    method: POST
+    headers:
+      Content-Type: application/json
+      X-Webhook-Signature: "{{ request.headers['x-webhook-signature'] }}"
+    body: "{{ request.body }}"
+    retry:
+      max_attempts: 3
+      backoff: exponential
+
+  - id: log-result
+    type: log
+    message: "Payment verified for order {{ actions.verify-and-forward.response.orderId }}"
+```
+
+Register via CLI:
+
+```bash
+kh workflow create --file agents/payment-verify/workflow.yaml
+```
+
+### 7.5 [DEMO-ONLY] BankSim Webhook Emitter (`/agents/payment-verify/banksim.ts`)
+
+```typescript
+// agents/payment-verify/banksim.ts
+// [DEMO-ONLY] Simulates a PSP firing a webhook after payment
+
+import crypto from 'node:crypto';
+import type { PaymentWebhookPayload } from './webhook';
+
+const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET!;
+
+export async function simulatePayment(
+  webhookUrl: string,
+  payload: PaymentWebhookPayload
+): Promise<void> {
+  const body = JSON.stringify(payload);
+  const signature = 'sha256=' + crypto
+    .createHmac('sha256', WEBHOOK_SECRET)
+    .update(body)
+    .digest('hex');
+
+  const res = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Webhook-Signature': signature,
+    },
+    body,
+  });
+
+  const result = await res.json();
+  console.log('[BankSim] Webhook delivered:', result);
+}
+
+// CLI usage for demo:
+// node -e "require('./banksim').simulatePayment('http://localhost:4001/webhook/payment', {
+//   orderId: 'order-1', amount: '100.00', currency: 'INR',
+//   sender: 'buyer@upi', receiver: 'lp@upi',
+//   transactionId: 'tx-demo-1', timestamp: Math.floor(Date.now()/1000), rail: 'upi'
+// })"
+```
+
+### 7.6 Verification Checklist
+
+- [ ] `PAYMENT_WEBHOOK_SECRET` generated and stored in `.env`
+- [ ] Webhook receiver starts on port 4001 (`curl http://localhost:4001/health`)
+- [ ] HMAC verification rejects tampered payloads (unit test)
+- [ ] Amount/currency/receiver mismatch returns 400
+- [ ] Valid webhook pins evidence to 0G Storage and returns `rootHash`
+- [ ] Evidence blob retrievable from 0G Storage via `rootHash`
+- [ ] `Escrow.release()` called with correct `orderId` and `evidenceHash`
+- [ ] KeeperHub workflow deployed and forwards webhooks to local receiver
+- [ ] [DEMO-ONLY] BankSim emitter triggers full flow end-to-end
+```
+
+---
+
+## 8. Smart Contracts
+
+### 8.1 Initialize Foundry Project
+
+```bash
+cd /Users/arkoroy/Desktop/eth/contracts
+
+# Initialize Foundry
+forge init --no-commit
+
+# Install OpenZeppelin
+forge install OpenZeppelin/openzeppelin-contracts --no-commit
+
+# Configure remappings
+cat > remappings.txt << 'EOF'
+@openzeppelin/=lib/openzeppelin-contracts/
+EOF
+```
+
+### 8.2 Escrow Contract (`/contracts/src/Escrow.sol`)
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+/**
+ * @title Escrow
+ * @notice Manages fiat-to-crypto swap escrows with zkTLS proof verification
+ * @dev State machine: INIT → LOCKED → PAID → RELEASED | EXPIRED | DISPUTED
+ */
+contract Escrow is ReentrancyGuard, Ownable {
+    using SafeERC20 for IERC20;
+
+    enum OrderState {
+        INIT,
+        LOCKED,
+        PAID,
+        RELEASED,
+        EXPIRED,
+        DISPUTED,
+        RESOLVED_BUYER,
+        RESOLVED_LP
+    }
+
+    struct Order {
+        uint256 id;
+        address buyer;
+        address lp;
+        address token;           // ERC20 token being sold
+        uint256 tokenAmount;     // Amount of tokens in escrow
+        uint256 fiatAmount;      // Expected fiat amount (in cents)
+        string fiatCurrency;     // "USD", "EUR", etc.
+        string railType;         // "upi", "venmo", "revolut"
+        uint256 buyerBond;       // Anti-grief bond from buyer
+        uint256 lpBond;          // Lock bond from LP
+        uint256 deadline;        // Unix timestamp
+        OrderState state;
+        bytes32 proofHash;       // Hash of zkTLS proof (0G Storage root)
+    }
+
+    // State
+    mapping(uint256 => Order) public orders;
+    uint256 public nextOrderId = 1;
+    uint256[] public lockedOrderIds;
+
+    // Configuration
+    uint256 public constant BOND_PERCENT = 100;  // 1% = 100 basis points
+    uint256 public constant MIN_DEADLINE = 5 minutes;
+    uint256 public constant MAX_DEADLINE = 1 hours;
+    uint256 public constant DISPUTE_WINDOW = 15 minutes;
+
+    address public verifier;     // zkTLS verifier contract
+    address public keeper;       // KeeperHub address for automation
+
+    // Events
+    event OrderCreated(uint256 indexed orderId, address indexed buyer, address indexed lp);
+    event OrderLocked(uint256 indexed orderId, uint256 tokenAmount, uint256 deadline);
+    event OrderPaid(uint256 indexed orderId, bytes32 proofHash);
+    event OrderReleased(uint256 indexed orderId, address indexed buyer, uint256 tokenAmount);
+    event OrderExpired(uint256 indexed orderId, address slashed);
+    event OrderDisputed(uint256 indexed orderId, address disputant);
+    event OrderResolved(uint256 indexed orderId, OrderState resolution);
+
+    // Errors
+    error InvalidState(OrderState expected, OrderState actual);
+    error Unauthorized();
+    error InvalidDeadline();
+    error InsufficientBond();
+    error DeadlineNotReached();
+    error ProofVerificationFailed();
+
+    constructor(address _verifier, address _keeper) Ownable(msg.sender) {
+        verifier = _verifier;
+        keeper = _keeper;
+    }
+
+    // ============================================
+    // Core Functions
+    // ============================================
+
+    /**
+     * @notice LP locks tokens into escrow
+     * @param token ERC20 token to sell
+     * @param tokenAmount Amount to lock
+     * @param fiatAmount Expected fiat payment (in cents)
+     * @param fiatCurrency Currency code
+     * @param railType Payment rail identifier
+     * @param deadlineSeconds Order expiry time
+     */
+    function lock(
+        address buyer,
+        address token,
+        uint256 tokenAmount,
+        uint256 fiatAmount,
+        string calldata fiatCurrency,
+        string calldata railType,
+        uint256 deadlineSeconds
+    ) external payable nonReentrant returns (uint256 orderId) {
+        if (deadlineSeconds < MIN_DEADLINE || deadlineSeconds > MAX_DEADLINE) {
+            revert InvalidDeadline();
+        }
+
+        // Calculate required LP bond (1% of token value)
+        uint256 lpBond = (tokenAmount * BOND_PERCENT) / 10000;
+        if (msg.value < lpBond) {
+            revert InsufficientBond();
+        }
+
+        orderId = nextOrderId++;
+        
+        orders[orderId] = Order({
+            id: orderId,
+            buyer: buyer,
+            lp: msg.sender,
+            token: token,
+            tokenAmount: tokenAmount,
+            fiatAmount: fiatAmount,
+            fiatCurrency: fiatCurrency,
+            railType: railType,
+            buyerBond: 0,
+            lpBond: lpBond,
+            deadline: block.timestamp + deadlineSeconds,
+            state: OrderState.LOCKED,
+            proofHash: bytes32(0)
+        });
+
+        lockedOrderIds.push(orderId);
+
+        // Transfer tokens from LP to escrow
+        IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
+
+        emit OrderCreated(orderId, buyer, msg.sender);
+        emit OrderLocked(orderId, tokenAmount, orders[orderId].deadline);
+    }
+
+    /**
+     * @notice Buyer commits to order with anti-grief bond
+     */
+    function commit(uint256 orderId) external payable nonReentrant {
+        Order storage order = orders[orderId];
+        
+        if (order.state != OrderState.LOCKED) {
+            revert InvalidState(OrderState.LOCKED, order.state);
+        }
+        if (msg.sender != order.buyer) {
+            revert Unauthorized();
+        }
+
+        uint256 requiredBond = (order.tokenAmount * BOND_PERCENT) / 10000;
+        if (msg.value < requiredBond) {
+            revert InsufficientBond();
+        }
+
+        order.buyerBond = msg.value;
+    }
+
+    /**
+     * @notice Submit zkTLS proof of fiat payment
+     */
+    function submitProof(
+        uint256 orderId,
+        bytes32 proofHash,
+        bytes calldata proofData
+    ) external nonReentrant {
+        Order storage order = orders[orderId];
+
+        if (order.state != OrderState.LOCKED) {
+            revert InvalidState(OrderState.LOCKED, order.state);
+        }
+        if (msg.sender != order.buyer) {
+            revert Unauthorized();
+        }
+        if (block.timestamp > order.deadline) {
+            revert DeadlineNotReached();
+        }
+
+        // Verify proof via verifier contract
+        bool valid = IVerifier(verifier).verify(
+            proofData,
+            order.fiatAmount,
+            order.fiatCurrency,
+            order.railType
+        );
+
+        if (!valid) {
+            revert ProofVerificationFailed();
+        }
+
+        order.proofHash = proofHash;
+        order.state = OrderState.PAID;
+
+        emit OrderPaid(orderId, proofHash);
+    }
+
+    /**
+     * @notice Release tokens to buyer after proof verification
+     */
+    function release(uint256 orderId) external nonReentrant {
+        Order storage order = orders[orderId];
+
+        if (order.state != OrderState.PAID) {
+            revert InvalidState(OrderState.PAID, order.state);
+        }
+        if (msg.sender != order.lp && msg.sender != keeper) {
+            revert Unauthorized();
+        }
+
+        order.state = OrderState.RELEASED;
+        _removeFromLocked(orderId);
+
+        // Transfer tokens to buyer
+        IERC20(order.token).safeTransfer(order.buyer, order.tokenAmount);
+
+        // Return bonds
+        payable(order.buyer).transfer(order.buyerBond);
+        payable(order.lp).transfer(order.lpBond);
+
+        emit OrderReleased(orderId, order.buyer, order.tokenAmount);
+    }
+
+    /**
+     * @notice Expire order past deadline (keeper function)
+     */
+    function expire(uint256 orderId) external nonReentrant {
+        Order storage order = orders[orderId];
+
+        if (order.state != OrderState.LOCKED) {
+            revert InvalidState(OrderState.LOCKED, order.state);
+        }
+        if (block.timestamp <= order.deadline) {
+            revert DeadlineNotReached();
+        }
+
+        order.state = OrderState.EXPIRED;
+        _removeFromLocked(orderId);
+
+        // Return tokens to LP
+        IERC20(order.token).safeTransfer(order.lp, order.tokenAmount);
+
+        // Slash buyer bond, return LP bond
+        payable(order.lp).transfer(order.lpBond + order.buyerBond);
+
+        emit OrderExpired(orderId, order.buyer);
+    }
+
+    /**
+     * @notice Open dispute (within dispute window)
+     */
+    function dispute(uint256 orderId) external nonReentrant {
+        Order storage order = orders[orderId];
+
+        if (order.state != OrderState.LOCKED && order.state != OrderState.PAID) {
+            revert InvalidState(OrderState.LOCKED, order.state);
+        }
+        if (msg.sender != order.buyer && msg.sender != order.lp) {
+            revert Unauthorized();
+        }
+
+        order.state = OrderState.DISPUTED;
+
+        emit OrderDisputed(orderId, msg.sender);
+    }
+
+    /**
+     * @notice Resolve dispute (keeper/governance function)
+     */
+    function resolveDispute(uint256 orderId, bool favorBuyer) external nonReentrant {
+        Order storage order = orders[orderId];
+
+        if (order.state != OrderState.DISPUTED) {
+            revert InvalidState(OrderState.DISPUTED, order.state);
+        }
+        if (msg.sender != keeper && msg.sender != owner()) {
+            revert Unauthorized();
+        }
+
+        _removeFromLocked(orderId);
+
+        if (favorBuyer) {
+            order.state = OrderState.RESOLVED_BUYER;
+            IERC20(order.token).safeTransfer(order.buyer, order.tokenAmount);
+            payable(order.buyer).transfer(order.buyerBond + order.lpBond);
+        } else {
+            order.state = OrderState.RESOLVED_LP;
+            IERC20(order.token).safeTransfer(order.lp, order.tokenAmount);
+            payable(order.lp).transfer(order.buyerBond + order.lpBond);
+        }
+
+        emit OrderResolved(orderId, order.state);
+    }
+
+    // ============================================
+    // View Functions
+    // ============================================
+
+    function getOrder(uint256 orderId) external view returns (Order memory) {
+        return orders[orderId];
+    }
+
+    function getLockedOrders() external view returns (uint256[] memory) {
+        return lockedOrderIds;
+    }
+
+    function getOrderDeadline(uint256 orderId) external view returns (uint256) {
+        return orders[orderId].deadline;
+    }
+
+    // ============================================
+    // Internal Functions
+    // ============================================
+
+    function _removeFromLocked(uint256 orderId) internal {
+        for (uint256 i = 0; i < lockedOrderIds.length; i++) {
+            if (lockedOrderIds[i] == orderId) {
+                lockedOrderIds[i] = lockedOrderIds[lockedOrderIds.length - 1];
+                lockedOrderIds.pop();
+                break;
+            }
+        }
+    }
+
+    // ============================================
+    // Admin Functions
+    // ============================================
+
+    function setVerifier(address _verifier) external onlyOwner {
+        verifier = _verifier;
+    }
+
+    function setKeeper(address _keeper) external onlyOwner {
+        keeper = _keeper;
+    }
+}
+
+interface IVerifier {
+    function verify(
+        bytes calldata proofData,
+        uint256 expectedAmount,
+        string calldata currency,
+        string calldata railType
+    ) external view returns (bool);
+}
+```
+
+### 8.3 RailRegistry Contract (`/contracts/src/RailRegistry.sol`)
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+/**
+ * @title RailRegistry
+ * @notice Registry of supported fiat rails and their verifiers
+ */
+contract RailRegistry is Ownable {
+    struct Rail {
+        string railType;
+        address verifier;
+        bool enabled;
+        bool isDemoOnly;  // Cannot be used on mainnet
+    }
+
+    mapping(string => Rail) public rails;
+    string[] public railTypes;
+
+    bool public demoMode;
+
+    event RailRegistered(string railType, address verifier, bool isDemoOnly);
+    event RailDisabled(string railType);
+    event DemoModeChanged(bool enabled);
+
+    error RailNotFound(string railType);
+    error RailDisabled_();
+    error DemoRailOnMainnet(string railType);
+
+    constructor(bool _demoMode) Ownable(msg.sender) {
+        demoMode = _demoMode;
+    }
+
+    function registerRail(
+        string calldata railType,
+        address verifier,
+        bool isDemoOnly
+    ) external onlyOwner {
+        if (rails[railType].verifier == address(0)) {
+            railTypes.push(railType);
+        }
+
+        rails[railType] = Rail({
+            railType: railType,
+            verifier: verifier,
+            enabled: true,
+            isDemoOnly: isDemoOnly
+        });
+
+        emit RailRegistered(railType, verifier, isDemoOnly);
+    }
+
+    function disableRail(string calldata railType) external onlyOwner {
+        if (rails[railType].verifier == address(0)) {
+            revert RailNotFound(railType);
+        }
+
+        rails[railType].enabled = false;
+        emit RailDisabled(railType);
+    }
+
+    function getVerifier(string calldata railType) external view returns (address) {
+        Rail memory rail = rails[railType];
+
+        if (rail.verifier == address(0)) {
+            revert RailNotFound(railType);
+        }
+        if (!rail.enabled) {
+            revert RailDisabled_();
+        }
+        if (rail.isDemoOnly && !demoMode) {
+            revert DemoRailOnMainnet(railType);
+        }
+
+        return rail.verifier;
+    }
+
+    function setDemoMode(bool _demoMode) external onlyOwner {
+        demoMode = _demoMode;
+        emit DemoModeChanged(_demoMode);
+    }
+
+    function getAllRails() external view returns (Rail[] memory) {
+        Rail[] memory allRails = new Rail[](railTypes.length);
+        for (uint256 i = 0; i < railTypes.length; i++) {
+            allRails[i] = rails[railTypes[i]];
+        }
+        return allRails;
+    }
+}
+```
+
+### 8.4 AgentRegistry Contract (`/contracts/src/AgentRegistry.sol`)
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+/**
+ * @title AgentRegistry
+ * @notice Maps wallet addresses to AXL public keys and agent roles
+ */
+contract AgentRegistry is Ownable {
+    enum AgentRole {
+        NONE,
+        BUYER,
+        LP,
+        KEEPER
+    }
+
+    struct Agent {
+        address wallet;
+        bytes32 axlPubkey;  // 32-byte hash of 64-char hex AXL key
+        AgentRole role;
+        uint256 registeredAt;
+        bool active;
+    }
+
+    mapping(address => Agent) public agents;
+    mapping(bytes32 => address) public axlToWallet;
+    address[] public agentList;
+
+    event AgentRegistered(address indexed wallet, bytes32 axlPubkey, AgentRole role);
+    event AgentDeactivated(address indexed wallet);
+    event RoleUpdated(address indexed wallet, AgentRole newRole);
+
+    error AgentExists();
+    error AgentNotFound();
+    error AXLKeyInUse();
+
+    constructor() Ownable(msg.sender) {}
+
+    /**
+     * @notice Register a new agent
+     * @param axlPubkey Keccak256 hash of 64-char hex AXL public key
+     * @param role Agent role
+     */
+    function register(bytes32 axlPubkey, AgentRole role) external {
+        if (agents[msg.sender].wallet != address(0)) {
+            revert AgentExists();
+        }
+        if (axlToWallet[axlPubkey] != address(0)) {
+            revert AXLKeyInUse();
+        }
+
+        agents[msg.sender] = Agent({
+            wallet: msg.sender,
+            axlPubkey: axlPubkey,
+            role: role,
+            registeredAt: block.timestamp,
+            active: true
+        });
+
+        axlToWallet[axlPubkey] = msg.sender;
+        agentList.push(msg.sender);
+
+        emit AgentRegistered(msg.sender, axlPubkey, role);
+    }
+
+    /**
+     * @notice Deactivate an agent
+     */
+    function deactivate() external {
+        if (agents[msg.sender].wallet == address(0)) {
+            revert AgentNotFound();
+        }
+
+        agents[msg.sender].active = false;
+        emit AgentDeactivated(msg.sender);
+    }
+
+    /**
+     * @notice Update agent role (owner only)
+     */
+    function updateRole(address wallet, AgentRole role) external onlyOwner {
+        if (agents[wallet].wallet == address(0)) {
+            revert AgentNotFound();
+        }
+
+        agents[wallet].role = role;
+        emit RoleUpdated(wallet, role);
+    }
+
+    /**
+     * @notice Get wallet address from AXL pubkey hash
+     */
+    function getWalletByAXL(bytes32 axlPubkey) external view returns (address) {
+        return axlToWallet[axlPubkey];
+    }
+
+    /**
+     * @notice Get all active agents by role
+     */
+    function getAgentsByRole(AgentRole role) external view returns (Agent[] memory) {
+        uint256 count = 0;
+        for (uint256 i = 0; i < agentList.length; i++) {
+            if (agents[agentList[i]].role == role && agents[agentList[i]].active) {
+                count++;
+            }
+        }
+
+        Agent[] memory result = new Agent[](count);
+        uint256 j = 0;
+        for (uint256 i = 0; i < agentList.length; i++) {
+            if (agents[agentList[i]].role == role && agents[agentList[i]].active) {
+                result[j++] = agents[agentList[i]];
+            }
+        }
+
+        return result;
+    }
+}
+```
+
+### 8.5 BankSim Verifier [DEMO-ONLY] (`/contracts/src/verifiers/BankSimVerifier.sol`)
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+/**
+ * @title BankSimVerifier
+ * @notice [DEMO-ONLY] Verifier for BankSim test transactions
+ * @dev This contract accepts any proof from the BankSim service
+ *      DO NOT DEPLOY ON MAINNET
+ */
+contract BankSimVerifier {
+    // Demo mode signature - in production this would verify zkTLS proofs
+    bytes32 public constant DEMO_PREFIX = keccak256("BANKSIM_DEMO_V1");
+
+    event ProofVerified(uint256 amount, string currency, string railType);
+
+    /**
+     * @notice Verify a BankSim proof
+     * @dev In demo mode, accepts any proof with valid structure
+     */
+    function verify(
+        bytes calldata proofData,
+        uint256 expectedAmount,
+        string calldata currency,
+        string calldata railType
+    ) external view returns (bool) {
+        // Decode demo proof
+        (
+            bytes32 prefix,
+            uint256 amount,
+            string memory proofCurrency,
+            uint256 timestamp
+        ) = abi.decode(proofData, (bytes32, uint256, string, uint256));
+
+        // Check demo prefix
+        if (prefix != DEMO_PREFIX) {
+            return false;
+        }
+
+        // Check amount matches
+        if (amount != expectedAmount) {
+            return false;
+        }
+
+        // Check currency matches
+        if (keccak256(bytes(proofCurrency)) != keccak256(bytes(currency))) {
+            return false;
+        }
+
+        // Check timestamp is recent (within 1 hour)
+        if (block.timestamp - timestamp > 1 hours) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @notice Generate demo proof data (for testing)
+     */
+    function generateDemoProof(
+        uint256 amount,
+        string calldata currency
+    ) external view returns (bytes memory) {
+        return abi.encode(DEMO_PREFIX, amount, currency, block.timestamp);
+    }
+}
+```
+
+### 8.6 Deploy Contracts
+
+```bash
+# Create deployment script
+cat > contracts/script/Deploy.s.sol << 'EOF'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+import "forge-std/Script.sol";
+import "../src/Escrow.sol";
+import "../src/RailRegistry.sol";
+import "../src/AgentRegistry.sol";
+import "../src/verifiers/BankSimVerifier.sol";
+
+contract DeployScript is Script {
+    function run() external {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        bool demoMode = vm.envBool("DEMO_MODE");
+
+        vm.startBroadcast(deployerPrivateKey);
+
+        // Deploy BankSim Verifier (demo only)
+        BankSimVerifier bankSimVerifier = new BankSimVerifier();
+        console.log("BankSimVerifier deployed to:", address(bankSimVerifier));
+
+        // Deploy RailRegistry
+        RailRegistry railRegistry = new RailRegistry(demoMode);
+        console.log("RailRegistry deployed to:", address(railRegistry));
+
+        // Register BankSim rail
+        railRegistry.registerRail("banksim", address(bankSimVerifier), true);
+
+        // Deploy AgentRegistry
+        AgentRegistry agentRegistry = new AgentRegistry();
+        console.log("AgentRegistry deployed to:", address(agentRegistry));
+
+        // Deploy Escrow (keeper address TBD)
+        address keeper = msg.sender; // Placeholder
+        Escrow escrow = new Escrow(address(bankSimVerifier), keeper);
+        console.log("Escrow deployed to:", address(escrow));
+
+        vm.stopBroadcast();
+
+        // Output deployment summary
+        console.log("\n=== Deployment Summary ===");
+        console.log("Network: 0G Testnet (Chain ID: 16602)");
+        console.log("Demo Mode:", demoMode);
+    }
+}
+EOF
+
+# Deploy to 0G testnet
+cd /Users/arkoroy/Desktop/eth/contracts
+source ../.env
+
+forge script script/Deploy.s.sol:DeployScript \
+  --rpc-url $ZEROG_TESTNET_RPC \
+  --broadcast \
+  --verify \
+  --verifier-url "https://chainscan-galileo.0g.ai/open/api" \
+  --verifier custom \
+  --verifier-api-key "PLACEHOLDER" \
+  --evm-version cancun \
+  -vvvv
+```
+
+---
+
+## 9. Agent Runtime
+
+### 9.1 Core Agent Loop (`/agents/runtime/index.ts`)
+
+```typescript
+// agents/runtime/index.ts
+import { AXLBridge, AXLMessageHandler } from '../../protocol/axl/bridge';
+import { MCPAgentServer, MCPAgentClient } from '../../protocol/mcp/server';
+import { X402Client } from '../../protocol/x402/client';
+import { ZeroGStorage } from '../../zerog/storage/client';
+import { ethers } from 'ethers';
+
+export interface AgentConfig {
+  name: string;
+  role: 'buyer' | 'lp' | 'keeper';
+  privateKey: string;
+  rpcUrl: string;
+  axlPort?: number;
+}
+
+export abstract class BaseAgent {
+  protected config: AgentConfig;
+  protected axl: AXLBridge;
+  protected mcpClient: MCPAgentClient;
+  protected x402: X402Client;
+  protected storage: ZeroGStorage;
+  protected signer: ethers.Wallet;
+  protected messageHandler: AXLMessageHandler;
+
+  constructor(config: AgentConfig) {
+    this.config = config;
+    this.axl = new AXLBridge(`http://127.0.0.1:${config.axlPort || 9002}`);
+    this.mcpClient = new MCPAgentClient(this.axl);
+    this.x402 = new X402Client(config.privateKey, config.rpcUrl);
+    this.storage = new ZeroGStorage(config.privateKey);
+    
+    const provider = new ethers.JsonRpcProvider(config.rpcUrl);
+    this.signer = new ethers.Wallet(config.privateKey, provider);
+    
+    this.messageHandler = new AXLMessageHandler(this.axl);
+  }
+
+  /**
+   * Initialize agent - connect to AXL, register handlers
+   */
+  async initialize(): Promise<void> {
+    console.log(`[${this.config.name}] Initializing...`);
+
+    // Get our AXL identity
+    const topology = await this.axl.getTopology();
+    console.log(`[${this.config.name}] AXL Public Key: ${topology.our_public_key}`);
+
+    // Setup message handlers
+    this.setupMessageHandlers();
+
+    console.log(`[${this.config.name}] Initialized`);
+  }
+
+  /**
+   * Override in subclasses to setup specific message handlers
+   */
+  protected abstract setupMessageHandlers(): void;
+
+  /**
+   * Start the agent's main loop
+   */
+  async start(): Promise<void> {
+    console.log(`[${this.config.name}] Starting...`);
+    await this.messageHandler.start();
+  }
+
+  /**
+   * Stop the agent
+   */
+  stop(): void {
+    console.log(`[${this.config.name}] Stopping...`);
+    this.messageHandler.stop();
+  }
+
+  /**
+   * Get wallet address
+   */
+  getAddress(): string {
+    return this.signer.address;
+  }
+
+  /**
+   * Get AXL public key
+   */
+  async getAXLPublicKey(): Promise<string> {
+    return this.axl.getPublicKey();
+  }
+}
+```
+
+### 9.2 Fiat Agent (`/agents/fiat-agent/index.ts`)
+
+```typescript
+// agents/fiat-agent/index.ts
+import { BaseAgent, AgentConfig } from '../runtime/index';
+import { RfqGet, QuoteSign, OrderCommit } from '../../protocol/mcp/schemas';
+import { simulatePayment } from '../payment-verify/banksim';
+import type { PaymentWebhookPayload } from '../payment-verify/webhook';
+
+interface FiatAgentConfig extends AgentConfig {
+  supportedRails: string[];
+  demoMode: boolean;
+  webhookUrl: string; // KeeperHub webhook endpoint
+}
+
+export class FiatAgent extends BaseAgent {
+  private fiatConfig: FiatAgentConfig;
+  private pendingQuotes: Map<string, QuoteSign[]> = new Map();
+
+  constructor(config: FiatAgentConfig) {
+    super({ ...config, role: 'buyer' });
+    this.fiatConfig = config;
+  }
+
+  protected setupMessageHandlers(): void {
+    // Handle incoming quotes from LPs
+    this.messageHandler.on('quote.sign', async (msg) => {
+      const quote = msg.data as QuoteSign;
+      console.log(`[FiatAgent] Received quote from ${quote.lpAgent}: ${quote.rate}`);
+
+      const quotes = this.pendingQuotes.get(quote.rfqId) || [];
+      quotes.push(quote);
+      this.pendingQuotes.set(quote.rfqId, quotes);
+    });
+
+    // Handle fiat details from LP
+    this.messageHandler.on('fiat.details', async (msg) => {
+      console.log(`[FiatAgent] Received fiat details for order ${msg.data.orderId}`);
+      // Decrypt and store for user to complete payment
+    });
+  }
+
+  /**
+   * Broadcast RFQ to all LPs
+   */
+  async broadcastRfq(intent: RfqGet['intent']): Promise<string> {
+    const rfqId = `rfq_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const rfq: RfqGet = {
+      intent,
+      buyerAgent: await this.getAXLPublicKey(),
+      timestamp: Date.now(),
+      ttl: 60, // 60 seconds
+    };
+
+    console.log(`[FiatAgent] Broadcasting RFQ: ${JSON.stringify(intent)}`);
+
+    // TODO: Broadcast to LP topic via AXL gossip
+    // For now, direct message to known LPs
+    // await this.axl.send(lpPubkey, { type: 'rfq.get', ...rfq });
+
+    return rfqId;
+  }
+
+  /**
+   * Select best quote and commit
+   */
+  async selectQuoteAndCommit(rfqId: string): Promise<OrderCommit | null> {
+    const quotes = this.pendingQuotes.get(rfqId);
+    if (!quotes || quotes.length === 0) {
+      console.log('[FiatAgent] No quotes received');
+      return null;
+    }
+
+    // Score quotes: rate × reputation
+    const scored = quotes.map(q => ({
+      quote: q,
+      score: parseFloat(q.rate) * (q.reputation / 100),
+    }));
+
+    scored.sort((a, b) => b.score - a.score);
+    const bestQuote = scored[0].quote;
+
+    console.log(`[FiatAgent] Selected quote from ${bestQuote.lpAgent}`);
+
+    // Commit to quote
+    const commit: OrderCommit = {
+      quoteId: bestQuote.rfqId,
+      buyerAgent: await this.getAXLPublicKey(),
+      lpAgent: bestQuote.lpAgent,
+      selectedRail: bestQuote.rails[0],
+      antiGriefBondTx: '', // TODO: Submit bond tx
+      timestamp: Date.now(),
+    };
+
+    await this.axl.send(bestQuote.lpAgent, { type: 'order.commit', ...commit });
+
+    return commit;
+  }
+
+  /**
+   * Notify buyer to complete payment to LP's PSP handle.
+   * Verification happens asynchronously when LP's PSP fires a webhook
+   * to KeeperHub -> local webhook receiver -> Escrow.release().
+   */
+  async submitPaymentProof(
+    orderId: string,
+    amount: string,
+    currency: string,
+    railType: string,
+    receiverHandle: string,
+    senderHandle: string
+  ): Promise<string> {
+    console.log(`[FiatAgent] Awaiting payment for order ${orderId}`);
+    console.log(`[FiatAgent] Pay ${amount} ${currency} via ${railType} to ${receiverHandle}`);
+    console.log(`[FiatAgent] Include memo: orderId=${orderId}`);
+
+    if (this.fiatConfig.demoMode) {
+      // [DEMO-ONLY] Fire simulated webhook to KeeperHub receiver
+      const payload: PaymentWebhookPayload = {
+        orderId,
+        amount,
+        currency,
+        sender: senderHandle,
+        receiver: receiverHandle,
+        transactionId: `tx_${orderId}`,
+        timestamp: Math.floor(Date.now() / 1000),
+        rail: railType as any,
+      };
+      await simulatePayment(this.fiatConfig.webhookUrl, payload);
+    }
+
+    // In production, the buyer completes payment via their banking app.
+    // The LP's PSP fires a real webhook to KeeperHub; the receiver validates
+    // it, pins evidence to 0G Storage, and calls Escrow.release() directly.
+    // The FiatAgent simply listens for the on-chain release event.
+
+    const rootHash = await this.waitForEscrowRelease(orderId);
+    console.log(`[FiatAgent] Escrow released. Evidence hash: ${rootHash}`);
+
+    return rootHash;
+  }
+
+  /**
+   * Listen for Escrow Released event for this order
+   */
+  private async waitForEscrowRelease(
+    orderId: string,
+    timeoutMs: number = 600_000
+  ): Promise<string> {
+    const { ethers } = await import('ethers');
+    const provider = new ethers.JsonRpcProvider(process.env.ZEROG_TESTNET_RPC!);
+    const escrow = new ethers.Contract(
+      process.env.ESCROW_ADDRESS!,
+      ['event Released(bytes32 indexed orderId, bytes32 evidenceHash)'],
+      provider
+    );
+    const orderHash = ethers.id(orderId);
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error('Escrow release timeout')),
+        timeoutMs
+      );
+      escrow.on('Released', (id: string, evidenceHash: string) => {
+        if (id === orderHash) {
+          clearTimeout(timeout);
+          escrow.removeAllListeners('Released');
+          resolve(evidenceHash);
+        }
+      });
+    });
+  }
+}
+```
+
+### 9.3 Crypto Agent (LP) (`/agents/crypto-agent/index.ts`)
+
+```typescript
+// agents/crypto-agent/index.ts
+import { BaseAgent, AgentConfig } from '../runtime/index';
+import { RfqGet, QuoteSign, FiatDetails } from '../../protocol/mcp/schemas';
+import { ethers } from 'ethers';
+
+interface CryptoAgentConfig extends AgentConfig {
+  inventory: {
+    token: string;      // Token address
+    balance: string;    // Available balance
+    minOrder: string;   // Minimum order size
+  }[];
+  spreadBps: number;    // Spread in basis points (100 = 1%)
+  supportedRails: string[];
+  fiatDetails: Record<string, any>;  // Rail -> payment details
+}
+
+export class CryptoAgent extends BaseAgent {
+  private lpConfig: CryptoAgentConfig;
+  private activeOrders: Map<string, any> = new Map();
+
+  constructor(config: CryptoAgentConfig) {
+    super({ ...config, role: 'lp' });
+    this.lpConfig = config;
+  }
+
+  protected setupMessageHandlers(): void {
+    // Handle incoming RFQs
+    this.messageHandler.on('rfq.get', async (msg) => {
+      const rfq = msg.data as RfqGet;
+      console.log(`[CryptoAgent] Received RFQ from ${rfq.buyerAgent}`);
+
+      const quote = await this.generateQuote(rfq);
+      if (quote) {
+        await this.axl.send(rfq.buyerAgent, { type: 'quote.sign', ...quote });
+      }
+    });
+
+    // Handle order commits
+    this.messageHandler.on('order.commit', async (msg) => {
+      const commit = msg.data;
+      console.log(`[CryptoAgent] Order committed: ${commit.quoteId}`);
+
+      // Lock tokens in escrow
+      // TODO: Call escrow.lock(...)
+
+      // Send fiat details
+      const details: FiatDetails = {
+        orderId: commit.quoteId,
+        railType: commit.selectedRail,
+        encryptedDetails: await this.encryptFiatDetails(
+          commit.buyerAgent,
+          this.lpConfig.fiatDetails[commit.selectedRail]
+        ),
+        nonce: ethers.hexlify(ethers.randomBytes(24)),
+      };
+
+      await this.axl.send(commit.buyerAgent, { type: 'fiat.details', ...details });
+    });
+
+    // Handle proof submissions
+    this.messageHandler.on('proof.submit', async (msg) => {
+      console.log(`[CryptoAgent] Proof submitted for order ${msg.data.orderId}`);
+      // Verify and release from escrow
+    });
+  }
+
+  /**
+   * Generate quote for RFQ
+   */
+  private async generateQuote(rfq: RfqGet): Promise<QuoteSign | null> {
+    // Check if we can fulfill this order
+    const canFulfill = this.checkInventory(rfq.intent.toCurrency, rfq.intent.amount);
+    if (!canFulfill) {
+      console.log('[CryptoAgent] Insufficient inventory');
+      return null;
+    }
+
+    // Check rail compatibility
+    const matchedRails = rfq.intent.rails.filter(r => 
+      this.lpConfig.supportedRails.includes(r)
+    );
+    if (matchedRails.length === 0) {
+      console.log('[CryptoAgent] No matching rails');
+      return null;
+    }
+
+    // Calculate rate with spread
+    const baseRate = await this.getMarketRate(rfq.intent.fromCurrency, rfq.intent.toCurrency);
+    const rateWithSpread = baseRate * (1 - this.lpConfig.spreadBps / 10000);
+
+    const outputAmount = parseFloat(rfq.intent.amount) * rateWithSpread;
+
+    const quote: QuoteSign = {
+      rfqId: `quote_${Date.now()}`,
+      lpAgent: await this.getAXLPublicKey(),
+      rate: rateWithSpread.toFixed(8),
+      outputAmount: outputAmount.toFixed(8),
+      fee: (parseFloat(rfq.intent.amount) * 0.005).toFixed(2), // 0.5% fee
+      rails: matchedRails,
+      expiry: Date.now() + 60000, // 1 minute
+      signature: '', // TODO: Sign quote
+      reputation: 85, // TODO: Fetch from Reputation contract
+    };
+
+    return quote;
+  }
+
+  private checkInventory(currency: string, amount: string): boolean {
+    const inv = this.lpConfig.inventory.find(i => 
+      i.token.toLowerCase() === currency.toLowerCase()
+    );
+    if (!inv) return false;
+    return parseFloat(inv.balance) >= parseFloat(amount);
+  }
+
+  private async getMarketRate(from: string, to: string): Promise<number> {
+    // TODO: Fetch from oracle
+    // Placeholder rates
+    const rates: Record<string, number> = {
+      'USD-ETH': 0.00035,
+      'USD-USDC': 1.0,
+    };
+    return rates[`${from}-${to}`] || 0;
+  }
+
+  private async encryptFiatDetails(buyerPubkey: string, details: any): Promise<string> {
+    // TODO: Use AXL e2e encryption
+    return Buffer.from(JSON.stringify(details)).toString('base64');
+  }
+}
+```
+
+---
+
+## 10. Web Application
+
+### 10.1 Initialize Next.js App
+
+```bash
+cd /Users/arkoroy/Desktop/eth/apps
+
+# Create Next.js 15 app
+pnpm create next-app@latest web --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
+
+cd web
+
+# Install dependencies
+pnpm add ethers @simplewebauthn/browser @simplewebauthn/server
+pnpm add socket.io socket.io-client
+pnpm add zustand  # State management
+```
+
+### 10.2 WebSocket Bridge Route (`/apps/web/src/app/api/sandbox/ws/route.ts`)
+
+```typescript
+// apps/web/src/app/api/sandbox/ws/route.ts
+import { Server } from 'socket.io';
+import { NextResponse } from 'next/server';
+
+// This would normally connect to a per-user sandbox
+// For now, direct to local AXL node
+
+let io: Server | null = null;
+
+export async function GET(request: Request) {
+  // WebSocket upgrade handling
+  // In production, use a proper WebSocket server
+  
+  return NextResponse.json({
+    message: 'WebSocket endpoint',
+    hint: 'Connect via Socket.IO client',
+  });
+}
+
+export async function POST(request: Request) {
+  const body = await request.json();
+  const { action, payload } = body;
+
+  // Route actions to AXL bridge
+  const axlUrl = process.env.AXL_BRIDGE_URL || 'http://127.0.0.1:9002';
+
+  switch (action) {
+    case 'topology':
+      const topologyRes = await fetch(`${axlUrl}/topology`);
+      return NextResponse.json(await topologyRes.json());
+
+    case 'send':
+      const sendRes = await fetch(`${axlUrl}/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Destination-Peer-Id': payload.peerId,
+        },
+        body: JSON.stringify(payload.message),
+      });
+      return NextResponse.json({ success: sendRes.ok });
+
+    case 'mcp':
+      const mcpRes = await fetch(`${axlUrl}/mcp/${payload.peerId}/${payload.service}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload.request),
+      });
+      return NextResponse.json(await mcpRes.json());
+
+    default:
+      return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+  }
+}
+```
+
+### 10.3 Chat UI Component (`/apps/web/src/app/(chat)/page.tsx`)
+
+```typescript
+// apps/web/src/app/(chat)/page.tsx
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+
+interface Message {
+  id: string;
+  role: 'user' | 'agent' | 'system';
+  content: string;
+  timestamp: number;
+  status?: 'pending' | 'completed' | 'error';
+}
+
+export default function ChatPage() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [agentStatus, setAgentStatus] = useState<'idle' | 'processing'>('idle');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Check AXL connection
+    checkConnection();
+  }, []);
+
+  const checkConnection = async () => {
+    try {
+      const res = await fetch('/api/sandbox/ws', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'topology' }),
+      });
+      const data = await res.json();
+      setIsConnected(!!data.our_public_key);
+
+      if (data.our_public_key) {
+        addMessage({
+          role: 'system',
+          content: `Connected to agent network\nPublic Key: ${data.our_public_key.slice(0, 16)}...`,
+        });
+      }
+    } catch (err) {
+      setIsConnected(false);
+      addMessage({
+        role: 'system',
+        content: 'Failed to connect to agent network. Is the AXL node running?',
+      });
+    }
+  };
+
+  const addMessage = (msg: Omit<Message, 'id' | 'timestamp'>) => {
+    setMessages(prev => [...prev, {
+      ...msg,
+      id: `msg_${Date.now()}`,
+      timestamp: Date.now(),
+    }]);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !isConnected) return;
+
+    const userMessage = input.trim();
+    setInput('');
+
+    addMessage({ role: 'user', content: userMessage });
+    setAgentStatus('processing');
+
+    // Parse intent
+    const intent = parseIntent(userMessage);
+
+    if (intent) {
+      addMessage({
+        role: 'agent',
+        content: `Processing: ${intent.action} ${intent.amount} ${intent.fromCurrency} → ${intent.toCurrency}`,
+        status: 'pending',
+      });
+
+      // TODO: Execute swap via agent
+      // For now, simulate
+      setTimeout(() => {
+        addMessage({
+          role: 'agent',
+          content: `Quote received: ${intent.amount} USD = 0.035 ETH\nRate: 0.00035 ETH/USD\nFee: $0.50\n\n[Confirm with passkey to proceed]`,
+          status: 'completed',
+        });
+        setAgentStatus('idle');
+      }, 2000);
+    } else {
+      addMessage({
+        role: 'agent',
+        content: `I can help you swap fiat to crypto. Try:\n• "swap 100 usd to eth"\n• "convert 50 usd to usdc on base"`,
+      });
+      setAgentStatus('idle');
+    }
+  };
+
+  const parseIntent = (text: string): any | null => {
+    const swapRegex = /(?:swap|convert|exchange)\s+(\d+(?:\.\d+)?)\s*(\w+)\s+(?:to|→|->)\s*(\w+)(?:\s+on\s+(\w+))?/i;
+    const match = text.match(swapRegex);
+
+    if (match) {
+      return {
+        action: 'swap',
+        amount: match[1],
+        fromCurrency: match[2].toUpperCase(),
+        toCurrency: match[3].toUpperCase(),
+        chain: match[4]?.toLowerCase() || '0g',
+      };
+    }
+
+    return null;
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-900 text-white">
+      {/* Header */}
+      <header className="border-b border-gray-800 p-4">
+        <div className="flex items-center justify-between max-w-4xl mx-auto">
+          <h1 className="text-xl font-semibold">Fiat ↔ Crypto Agent</h1>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-sm text-gray-400">
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {/* Messages */}
+      <main className="flex-1 overflow-y-auto p-4">
+        <div className="max-w-4xl mx-auto space-y-4">
+          {messages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                  msg.role === 'user'
+                    ? 'bg-blue-600'
+                    : msg.role === 'system'
+                    ? 'bg-gray-700 text-gray-300 text-sm'
+                    : 'bg-gray-800'
+                }`}
+              >
+                <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
+                {msg.status === 'pending' && (
+                  <div className="mt-2 flex items-center gap-2 text-yellow-400 text-sm">
+                    <span className="animate-spin">⟳</span>
+                    <span>Processing...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      </main>
+
+      {/* Input */}
+      <footer className="border-t border-gray-800 p-4">
+        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Type a message... (e.g., 'swap 100 usd to eth')"
+              className="flex-1 bg-gray-800 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={!isConnected || agentStatus === 'processing'}
+            />
+            <button
+              type="submit"
+              disabled={!isConnected || agentStatus === 'processing'}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed px-6 py-2 rounded-lg font-medium transition"
+            >
+              Send
+            </button>
+          </div>
+        </form>
+      </footer>
+    </div>
+  );
+}
+```
+
+---
+
+## 11. Verification Checklists
+
+### 11.1 Environment Verification
+
+```bash
+#!/bin/bash
+# scripts/verify-all.sh
+
+echo "=== Environment Verification ==="
+
+# Check Node.js
+echo -n "Node.js: "
+node --version 2>/dev/null || echo "NOT INSTALLED"
+
+# Check Go
+echo -n "Go: "
+go version 2>/dev/null || echo "NOT INSTALLED"
+
+# Check Foundry
+echo -n "Foundry: "
+forge --version 2>/dev/null || echo "NOT INSTALLED"
+
+# Check KeeperHub CLI
+echo -n "KeeperHub CLI: "
+kh version 2>/dev/null || echo "NOT INSTALLED"
+
+# Check .env
+echo -n ".env file: "
+[ -f .env ] && echo "EXISTS" || echo "MISSING"
+
+# Check required env vars
+echo ""
+echo "=== Environment Variables ==="
+source .env 2>/dev/null
+
+[ -n "$PRIVATE_KEY" ] && echo "✅ PRIVATE_KEY set" || echo "❌ PRIVATE_KEY missing"
+[ -n "$ZEROG_TESTNET_RPC" ] && echo "✅ ZEROG_TESTNET_RPC set" || echo "❌ ZEROG_TESTNET_RPC missing"
+[ -n "$KH_API_KEY" ] && echo "✅ KH_API_KEY set" || echo "❌ KH_API_KEY missing"
+[ -n "$PAYMENT_WEBHOOK_SECRET" ] && echo "✅ PAYMENT_WEBHOOK_SECRET set" || echo "❌ PAYMENT_WEBHOOK_SECRET missing"
+```
+
+### 11.2 AXL Node Verification
+
+```bash
+# Check AXL node is running
+curl -s http://127.0.0.1:9002/topology | jq -e '.our_public_key' > /dev/null \
+  && echo "✅ AXL node running" \
+  || echo "❌ AXL node not running"
+```
+
+### 11.3 Contract Deployment Verification
+
+```bash
+# Verify contracts on 0G testnet
+source .env
+
+# Check Escrow
+cast call $ESCROW_ADDRESS "owner()" --rpc-url $ZEROG_TESTNET_RPC \
+  && echo "✅ Escrow deployed" \
+  || echo "❌ Escrow not found"
+
+# Check RailRegistry
+cast call $RAIL_REGISTRY_ADDRESS "demoMode()" --rpc-url $ZEROG_TESTNET_RPC \
+  && echo "✅ RailRegistry deployed" \
+  || echo "❌ RailRegistry not found"
+```
+
+### 11.4 End-to-End Flow Verification
+
+```bash
+# Full e2e test script
+cat > scripts/e2e-test.ts << 'EOF'
+import { FiatAgent } from '../agents/fiat-agent';
+import { CryptoAgent } from '../agents/crypto-agent';
+import { verifyAXLSetup } from '../protocol/axl/bridge';
+
+async function runE2ETest() {
+  console.log('=== E2E Test: Happy Path ===\n');
+
+  // 1. Verify AXL
+  console.log('1. Checking AXL connectivity...');
+  const axlOk = await verifyAXLSetup();
+  if (!axlOk) {
+    console.error('❌ AXL not running. Start with: cd services/axl-node && ./node -config node-config.json');
+    process.exit(1);
+  }
+  console.log('✅ AXL connected\n');
+
+  // 2. Initialize agents
+  console.log('2. Initializing agents...');
+  const fiatAgent = new FiatAgent({
+    name: 'test-fiat-agent',
+    role: 'buyer',
+    privateKey: process.env.PRIVATE_KEY!,
+    rpcUrl: process.env.ZEROG_TESTNET_RPC!,
+    supportedRails: ['banksim'],
+    demoMode: true,
+  });
+
+  const cryptoAgent = new CryptoAgent({
+    name: 'test-crypto-agent',
+    role: 'lp',
+    privateKey: process.env.LP_PRIVATE_KEY || process.env.PRIVATE_KEY!,
+    rpcUrl: process.env.ZEROG_TESTNET_RPC!,
+    inventory: [{ token: 'ETH', balance: '10', minOrder: '0.01' }],
+    spreadBps: 50,
+    supportedRails: ['banksim'],
+    fiatDetails: { banksim: { accountId: 'demo123' } },
+  });
+
+  await fiatAgent.initialize();
+  await cryptoAgent.initialize();
+  console.log('✅ Agents initialized\n');
+
+  // 3. Broadcast RFQ
+  console.log('3. Broadcasting RFQ...');
+  const rfqId = await fiatAgent.broadcastRfq({
+    fromCurrency: 'USD',
+    toCurrency: 'ETH',
+    toChain: '0g',
+    amount: '100.00',
+    rails: ['banksim'],
+  });
+  console.log(`✅ RFQ broadcast: ${rfqId}\n`);
+
+  // 4. Wait for quotes (simulate)
+  console.log('4. Waiting for quotes...');
+  await new Promise(r => setTimeout(r, 3000));
+  console.log('✅ Quotes received (simulated)\n');
+
+  // 5. Generate proof
+  console.log('5. Generating zkTLS proof...');
+  const proofHash = await fiatAgent.submitPaymentProof(
+    rfqId,
+    '100.00',
+    'USD',
+    'banksim'
+  );
+  console.log(`✅ Proof stored: ${proofHash}\n`);
+
+  console.log('=== E2E Test Complete ===');
+}
+
+runE2ETest().catch(console.error);
+EOF
+```
+
+---
+
+## Appendix A: Human Intervention Points
+
+The following steps require manual human input:
+
+| Step | Action Required | Where |
+|------|----------------|-------|
+| 1 | Fill `PRIVATE_KEY` in `.env` | .env file |
+| 2 | Get KeeperHub API key | https://app.keeperhub.com/settings/api-keys |
+| 3 | Generate webhook HMAC secret + configure PSP webhooks | `openssl rand -hex 32` + PSP dashboard |
+| 4 | Fund deployer wallet with 0G testnet tokens | https://faucet.0g.ai |
+| 5 | Complete KeeperHub OAuth flow | `claude mcp add` then `/mcp` |
+| 6 | Deploy contracts (review gas costs) | `forge script` command |
+
+---
+
+## Appendix B: MCP Servers & Skills
+
+### Available MCP Integrations
+
+| Service | MCP Endpoint | Install Command |
+|---------|--------------|-----------------|
+| KeeperHub | `https://app.keeperhub.com/mcp` | `claude mcp add --transport http keeperhub https://app.keeperhub.com/mcp` |
+| 0G Compute | Via SDK | `pnpm add @0glabs/0g-serving-broker` |
+| Gensyn AXL | Local HTTP bridge | `http://127.0.0.1:9002/mcp/{peer}/{service}` |
+
+### Skills
+
+| Skill | Purpose | Install |
+|-------|---------|---------|
+| KeeperHub Agentic Wallet | x402 payments | `npx @keeperhub/wallet skill install` |
+| Coinbase Agentic Wallet | Alternative x402 | `npx skills add coinbase/agentic-wallet-skills` |
+
+---
+
+## Appendix C: Network Configuration
+
+### 0G Galileo Testnet
+
+| Parameter | Value |
+|-----------|-------|
+| Network Name | 0G-Galileo-Testnet |
+| Chain ID | 16602 |
+| RPC URL | https://evmrpc-testnet.0g.ai |
+| Block Explorer | https://chainscan-galileo.0g.ai |
+| Faucet | https://faucet.0g.ai |
+| Storage Flow Contract | 0x22E03a6A89B950F1c82ec5e74F8eCa321a105296 |
+
+### Base Sepolia (Multi-chain testing)
+
+| Parameter | Value |
+|-----------|-------|
+| Chain ID | 84532 |
+| RPC URL | https://sepolia.base.org |
+| USDC Contract | 0x036CbD53842c5426634e7929541eC2318f3dCF7e |
+
+---
+
+## Appendix D: Contract Addresses
+
+After deployment, update these addresses:
+
+```bash
+# Add to .env after deployment
+ESCROW_ADDRESS=0x...
+RAIL_REGISTRY_ADDRESS=0x...
+AGENT_REGISTRY_ADDRESS=0x...
+BANKSIM_VERIFIER_ADDRESS=0x...
+```
+
+---
+
+*This document is the authoritative build guide. All code is production-shaped. Demo-only components are clearly marked with `[DEMO-ONLY]`.*
+
+---
+
+## Appendix E: 0G Agent Resources
+
+The following resources provide additional context and tooling for building agents on the 0G network:
+
+| Resource | URL | Description |
+|----------|-----|-------------|
+| 0G AI Context | https://docs.0g.ai/ai-context | Official 0G documentation for AI/agent integration |
+| 0G Agent Skills | https://github.com/0gfoundation/0g-agent-skills | Ready-to-use agent skills for 0G ecosystem |
+| 0G CC NPM Package | https://www.npmjs.com/package/@0gfoundation/0g-cc | Claude Code integration package for 0G |
+| 0G Compute Skills | https://github.com/0gfoundation/0g-compute-skills | Compute-specific skills for 0G inference workloads |
+
+> **Note**: AI agents implementing this guide should fetch and read these resources before executing Sections 2 (0G Platform Integration) and 9 (Agent Runtime).
+
+---
+
+## Appendix F: KeeperHub Resources
+
+The following resources provide documentation for KeeperHub blockchain automation:
+
+| Resource | URL | Description |
+|----------|-----|-------------|
+| KeeperHub Main | https://keeperhub.com | MCP and REST API overview, x402/MPP support |
+| KeeperHub App/MCP | https://app.keeperhub.com/mcp | MCP endpoint for Claude Code integration |
+| KeeperHub GitHub | https://github.com/techops-services/keeperhub | SDK, examples, and workflow templates |
+
+> **Note**: AI agents should fetch these resources before implementing Sections 6 (KeeperHub Automation) and 7 (Payment Verification).

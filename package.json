@@ -1,0 +1,13 @@
+{
+  "name": "aegis",
+  "version": "0.1.0",
+  "description": "Aegis — Agentic Fiat-Crypto Onramp",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.20.0"
+}
