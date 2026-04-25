@@ -12,6 +12,8 @@ cache/
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+contracts/lib/
+contracts/foundry.lock
 
 # AXL
 services/axl-node/
