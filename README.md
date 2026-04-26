@@ -43,18 +43,19 @@ MoonPay        →  5% fees, centralized verification, your data sold
 
 ---
 
-## The Moat
+## How Aegis Works
 
 **Decentralized AI agents that onramp for you.**
 
-| What | How |
-|------|-----|
-| **P2P Negotiation** | Agents find LPs over encrypted mesh — no orderbook, no server |
-| **zkTLS Verification** | Cryptographic proof of fiat payment from bank's TLS session |
-| **Trustless Escrow** | Funds in smart contracts, released only with valid proof |
-| **Verifiable Agents** | TEE-attested code — you can prove the agent isn't tampered |
+| Layer | Tech | What It Does |
+|-------|------|--------------|
+| **P2P Negotiation** | Gensyn AXL | Agents find LPs over encrypted mesh — no orderbook, no server |
+| **Agent Memory** | 0G Storage | Persists decisions, preferences, LP rankings on-chain |
+| **Agent Integrity** | 0G Compute | TEE attestation — prove the agent code isn't tampered |
+| **zkTLS Verification** | Reclaim | Cryptographic proof of fiat payment from bank's TLS session |
+| **Escrow & Automation** | KeeperHub | Trustless escrow, deadline enforcement, auto-release on proof |
 
-No human in the loop. No company holding your money. Just agents, proofs, and contracts.
+No human in the loop. No company holding your money.
 
 ---
 
