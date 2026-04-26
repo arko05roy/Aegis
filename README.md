@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/AEGIS-Decentralized%20Onramp-000000?style=for-the-badge&labelColor=10B981&color=000000" alt="Aegis" />
+  <img src="public/aegis-logo.png" alt="Aegis" width="200" />
 </p>
 
 <h1 align="center">The First Decentralized Fiat ↔ Crypto Onramp</h1>
