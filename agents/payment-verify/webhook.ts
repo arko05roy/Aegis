@@ -116,6 +116,51 @@ const ESCROW_ABI = [
   'function release(bytes32 orderId, bytes32 evidenceHash) external',
 ] as const;
 
+const KEEPERHUB_WORKFLOW_ID = process.env.KEEPERHUB_PAYMENT_WORKFLOW_ID ?? '';
+const KEEPERHUB_API_URL = process.env.KEEPERHUB_API_URL ?? 'https://api.keeperhub.xyz';
+const KEEPERHUB_API_KEY = process.env.KEEPERHUB_API_KEY ?? '';
+
+/**
+ * Trigger KeeperHub workflow for payment release.
+ * Returns execution ID if successful, null if KeeperHub not configured.
+ */
+export async function triggerKeeperHubRelease(
+  orderId: string,
+  evidenceHash: string,
+  amount: string,
+  currency: string,
+): Promise<string | null> {
+  if (!KEEPERHUB_WORKFLOW_ID || !KEEPERHUB_API_KEY) {
+    console.log('[Webhook] KeeperHub not configured, using direct release');
+    return null;
+  }
+
+  try {
+    const res = await fetch(`${KEEPERHUB_API_URL}/v1/workflows/${KEEPERHUB_WORKFLOW_ID}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${KEEPERHUB_API_KEY}`,
+      },
+      body: JSON.stringify({
+        input: { orderId, evidenceHash, amount, currency },
+      }),
+    });
+
+    if (!res.ok) {
+      console.error('[Webhook] KeeperHub trigger failed:', await res.text());
+      return null;
+    }
+
+    const data = await res.json();
+    console.log(`[Webhook] KeeperHub workflow triggered: ${data.executionId}`);
+    return data.executionId;
+  } catch (err) {
+    console.error('[Webhook] KeeperHub trigger error:', err);
+    return null;
+  }
+}
+
 /** Calls Escrow.release(orderId, evidenceHash). */
 export async function releaseEscrow(
   orderId: string,
@@ -177,9 +222,26 @@ export function createWebhookServer(opts: WebhookServerOptions) {
       ? `dryrun:${payload.transactionId}`
       : await pinEvidence(payload, sig);
 
-    const txHash = opts.skipRelease ? '' : await releaseEscrow(payload.orderId, evidenceHash);
+    let txHash = '';
+    let keeperExecId: string | null = null;
 
-    return c.json({ ok: true, orderId: payload.orderId, evidenceHash, txHash });
+    if (!opts.skipRelease) {
+      // Try KeeperHub first, fall back to direct release
+      keeperExecId = await triggerKeeperHubRelease(
+        payload.orderId, evidenceHash, payload.amount, payload.currency
+      );
+      if (!keeperExecId) {
+        txHash = await releaseEscrow(payload.orderId, evidenceHash);
+      }
+    }
+
+    return c.json({
+      ok: true,
+      orderId: payload.orderId,
+      evidenceHash,
+      txHash,
+      keeperExecId,
+    });
   });
 
   app.get('/health', (c) => c.json({ status: 'ok' }));

@@ -27,8 +27,8 @@ export abstract class BaseAgent {
   constructor(config: AgentConfig) {
     this.config = config;
     this.axl = new AXLBridge(`http://127.0.0.1:${config.axlPort || 9002}`);
-    this.mcpClient = new MCPAgentClient(this.axl);
     this.x402 = new X402Client({ privateKey: config.privateKey });
+    this.mcpClient = new MCPAgentClient(this.axl, this.x402);
     this.storage = new ZeroGStorage(config.privateKey);
 
     const provider = new ethers.JsonRpcProvider(config.rpcUrl);
@@ -93,6 +93,18 @@ export abstract class BaseAgent {
 
   getMemoryHash(): string | null {
     return this.memoryHash;
+  }
+
+  /**
+   * Call a remote agent's MCP tool with automatic x402 payment handling.
+   */
+  async callAgentTool(
+    peerPubkey: string,
+    serviceName: string,
+    toolName: string,
+    params: object,
+  ): Promise<any> {
+    return this.mcpClient.callTool(peerPubkey, serviceName, toolName, params);
   }
 
   async start(): Promise<void> {
