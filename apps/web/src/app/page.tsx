@@ -160,7 +160,7 @@ export default function Home() {
         address: ESCROW_ADDRESS,
         abi: ESCROW_ABI,
         functionName: 'lock',
-        args: [address, TOKEN_ADDRESS, tokenAmount, 10000n, intent.fromCcy, intent.rail, 600n, orderRefId],
+        args: [address, TOKEN_ADDRESS, tokenAmount, BigInt(intent.amount), intent.fromCcy, intent.rail, 600n, orderRefId],
         value: lpBond,
       });
     }
@@ -317,7 +317,7 @@ export default function Home() {
       const res = await fetch('/api/pay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderRefId }),
+        body: JSON.stringify({ orderRefId, amount: intent.amount, currency: intent.fromCcy }),
       });
       const result = await res.json();
 

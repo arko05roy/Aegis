@@ -10,6 +10,7 @@ export class ZeroGStorage {
   private indexer: Indexer;
   private signer: ethers.Wallet;
   private uploadQueue: Promise<any> = Promise.resolve();
+  private lastNonce: number = -1;
 
   constructor(privateKey: string) {
     const provider = new ethers.JsonRpcProvider(ZEROG_RPC);
@@ -28,7 +29,14 @@ export class ZeroGStorage {
       const rootHash = tree?.rootHash();
       console.log(`[0G Storage] Uploading proof, root: ${rootHash}`);
 
-      const [tx, uploadErr] = await this.indexer.upload(memData, ZEROG_RPC, this.signer);
+      // Get fresh nonce to avoid collisions
+      const pendingNonce = await this.signer.getNonce('pending');
+      const useNonce = Math.max(pendingNonce, this.lastNonce + 1);
+      this.lastNonce = useNonce;
+
+      const [tx, uploadErr] = await this.indexer.upload(memData, ZEROG_RPC, this.signer, {
+        nonce: BigInt(useNonce),
+      });
       if (uploadErr !== null) {
         throw new Error(`Upload error: ${uploadErr}`);
       }
