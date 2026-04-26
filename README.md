@@ -34,8 +34,9 @@ Onboarding into crypto, DeFi, and decentralization requires you to interact with
 
 ```
 Coinbase       →  Custodies your funds, freezes accounts at will
+Binance        →  KYC everything, banned in half the world
+CoinDCX        →  Centralized order matching, withdrawal limits
 MoonPay        →  5% fees, centralized verification, your data sold
-LocalBitcoins  →  Meet strangers, hope they don't scam you
 ```
 
 **$50B+ flows through these centralized onramps every year.** Aegis changes that.
