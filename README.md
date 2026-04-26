@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Autonomous AI agents + zkTLS proofs + P2P negotiation.</strong><br/>
-  No CEX. No custodian. No middleman. Just math and code.
+  No CEX. No custodian. No middleman.
 </p>
 
 <p align="center">
