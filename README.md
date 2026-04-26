@@ -1,194 +1,220 @@
-# Aegis
+<p align="center">
+  <img src="https://img.shields.io/badge/AEGIS-Zero%20Human%20Touchpoints-000000?style=for-the-badge&labelColor=10B981&color=000000" alt="Aegis" />
+</p>
 
-**Zero-human-touchpoint fiat ↔ crypto onramp powered by wallet-embedded AI agents.**
+<h1 align="center">Fiat ↔ Crypto Without Trusting Anyone</h1>
 
-Crypto preaches decentralization, yet the way we go from fiat to crypto is through CEXs and centralized onramps. Aegis fixes that.
+<p align="center">
+  <strong>$50 billion flows through centralized onramps every year.</strong><br/>
+  Aegis replaces them with AI agents that can't steal your money — by design.
+</p>
 
-## The Problem
+<p align="center">
+  <a href="#the-irony">The Irony</a> •
+  <a href="#the-fix">The Fix</a> •
+  <a href="#see-it-work">See It Work</a> •
+  <a href="#why-trust-an-ai">Trust Model</a> •
+  <a href="#proof">Proof</a>
+</p>
 
-Every fiat onramp today requires trusting a centralized party:
-- **CEXs** — custody risk, KYC friction, account freezes
-- **MoonPay/Ramp** — centralized verification, high fees
-- **Manual P2P** — slow, requires human coordination, scam risk
+<p align="center">
+  <img src="https://img.shields.io/badge/0G-Storage%20%2B%20Compute-00D4AA?style=flat-square" alt="0G" />
+  <img src="https://img.shields.io/badge/Gensyn-AXL-7C3AED?style=flat-square" alt="AXL" />
+  <img src="https://img.shields.io/badge/KeeperHub-Automation-FF6B35?style=flat-square" alt="KeeperHub" />
+  <img src="https://img.shields.io/badge/x402-Payments-3B82F6?style=flat-square" alt="x402" />
+</p>
 
-## The Solution
+---
 
-Aegis embeds two AI agents directly in your wallet:
-- **Fiat Agent** — handles buying crypto (fiat → crypto)
-- **Crypto Agent** — handles selling crypto (crypto → fiat)
+## The Irony
 
-These agents negotiate, verify payments, and settle trades **without human intervention**. Humans only provide liquidity — the agents handle everything else.
+Crypto was supposed to eliminate middlemen.
 
-```
-User: "swap 100 usd → eth"
-  ↓
-Fiat Agent broadcasts RFQ over encrypted P2P mesh
-  ↓
-LP agents respond with signed quotes
-  ↓
-User confirms fiat payment via passkey
-  ↓
-zkTLS proof verifies payment
-  ↓
-Crypto released from escrow — zero human touchpoints
-```
-
-## Why Trust an AI Agent?
-
-1. **Verifiable Reasoning** — Every agent decision runs through 0G Compute TEE. You can cryptographically prove WHY the agent chose a specific LP or rate.
-
-2. **Agent Attestation** — 0G Compute attests that the running agent matches the open-source code. No tampered binaries.
-
-3. **Persistent Consciousness** — Agent memory (preferences, LP rankings, transaction history) persists on 0G Storage. Your agent survives your phone dying.
-
-4. **No Greed** — AI agents don't have profit motives unless coded in. The code is open source and auditable.
-
-## Architecture
+Yet every time you convert fiat to crypto, you hand your money to one:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      YOUR WALLET                            │
-│  ┌─────────────┐              ┌─────────────┐              │
-│  │ Fiat Agent  │              │Crypto Agent │              │
-│  │ (buy crypto)│              │(sell crypto)│              │
-│  └──────┬──────┘              └──────┬──────┘              │
-└─────────┼────────────────────────────┼──────────────────────┘
-          │                            │
-          │   GENSYN AXL (encrypted P2P mesh)
-          │                            │
-┌─────────▼────────────────────────────▼──────────────────────┐
-│                    LP AGENT NETWORK                         │
-│  ┌─────────┐    ┌─────────┐    ┌─────────┐                 │
-│  │LP Agent │    │LP Agent │    │LP Agent │                 │
-│  │  (UPI)  │    │ (Venmo) │    │(Revolut)│                 │
-│  └─────────┘    └─────────┘    └─────────┘                 │
-└─────────────────────────────────────────────────────────────┘
+Coinbase       →  Custodies your funds, freezes accounts at will
+MoonPay        →  5% fees, centralized verification, your data sold
+LocalBitcoins  →  Meet strangers, hope they don't scam you
 ```
 
-## Tech Stack
+**We built trustless money, then wrapped it in trust-required onramps.**
 
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| **Chain** | 0G Chain | Escrow, orderbook, reputation |
-| **Compute** | 0G Compute | TEE attestation, verifiable agent decisions |
-| **Storage** | 0G Storage | Agent consciousness, decision logs, proofs |
-| **Transport** | Gensyn AXL | Encrypted P2P agent mesh (no central server) |
-| **Payments** | x402 + KeeperHub | Payment triggers, escrow automation |
-| **Verification** | Reclaim zkTLS | Fiat payment proofs |
-| **Frontend** | Next.js 15 | Chat UI with WebAuthn passkeys |
+---
 
-## Key Features
+## The Fix
 
-### Agent Attestation (0G Compute)
-```typescript
-// On agent startup, get TEE attestation
-const attestation = await compute.attestAgent(codeHash, agentName, version);
-// Returns TEE-signed proof that running code = open source version
-```
-
-### Decision Playback (0G Storage)
-```bash
-# Query why your agent made a decision
-curl http://localhost:4002/decisions/0xYourWallet
-
-# Returns full decision trail with 0G proof hashes
-{
-  "fiat": {
-    "attestation": { "codeHash": "abc123...", "verified": true },
-    "decisions": [
-      { "action": "quote.selected", "data": { "lp": "0x...", "rate": 0.00033, "reason": "best rate" } }
-    ]
-  }
-}
-```
-
-### P2P Agent Mesh (Gensyn AXL)
-- No central orderbook or matching engine
-- Agents discover each other via AXL mesh
-- End-to-end encrypted communication
-- Works even if you're behind NAT
-
-### Payment Automation (KeeperHub)
-- Escrow timeouts enforced automatically
-- Payment verification triggers escrow release
-- No manual intervention needed
-
-## Supported Rails
-
-**Fiat:** UPI, Venmo, Revolut, BankSim (demo)
-
-**Crypto:** 0G Chain, Base, Solana
-
-## Quick Start
-
-```bash
-# Install
-pnpm install
-
-# Configure
-cp .env.example .env
-# Add your PRIVATE_KEY and other secrets
-
-# Start AXL nodes (2 terminals)
-cd services/axl-node && ./node -config node-config.json
-cd services/axl-node && ./node -config node-config-2.json
-
-# Start agent server
-pnpm run agent-server
-
-# Start web UI
-pnpm dev
-```
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/agents` | POST | Create agent pair for wallet |
-| `/rfq` | POST | Broadcast RFQ to LP network |
-| `/quotes/:rfqId` | GET | Get quotes for RFQ |
-| `/commit` | POST | Commit to a quote |
-| `/decisions/:wallet` | GET | Get agent decision history |
-| `/health` | GET | Server status |
-
-## Repository Structure
+Two AI agents live in your wallet:
 
 ```
-/agents             Fiat Agent, Crypto Agent, runtime
-/contracts          Escrow, Orderbook, Reputation (Solidity)
-/protocol           MCP schemas, x402, AXL bridge
-/zerog              0G Compute + Storage integrations
-/keepers            KeeperHub workflows and jobs
-/services           AXL node, agent server, webhook receiver
-/apps/web           Next.js chat UI
-/scripts            E2E tests, demos, verification
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│   FIAT AGENT          YOU           CRYPTO AGENT               │
+│   ┌─────────┐      ┌───────┐      ┌─────────┐                  │
+│   │ Finds   │      │       │      │ Quotes  │                  │
+│   │ best LP │ ───► │ Picks │ ◄─── │ rates   │                  │
+│   │ rates   │      │       │      │         │                  │
+│   └─────────┘      └───────┘      └─────────┘                  │
+│        │                                │                       │
+│        └────────────┬───────────────────┘                       │
+│                     ▼                                           │
+│              ┌─────────────┐                                    │
+│              │   ESCROW    │  ← Funds here, not in agents      │
+│              │  (on-chain) │                                    │
+│              └─────────────┘                                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Demo
+**One rule: Agents negotiate. They never touch funds.**
 
-```bash
-# Run cross-node AXL demo
-npx ts-node scripts/demo-axl-cross-node.ts
+---
 
-# Run full E2E flow
-npx ts-node scripts/e2e-full-flow.ts
+## See It Work
 
-# Test 0G Storage
-npx ts-node scripts/irl-0g-storage.ts
+```
+You:     "swap 100 usd → eth"
+
+         ┌──────────────────────────────────────────────────────┐
+         │  Your Fiat Agent broadcasts to LP network via AXL   │
+         │  (encrypted P2P mesh, no central server)            │
+         └──────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+         ┌──────────────────────────────────────────────────────┐
+         │  3 LP agents respond with quotes:                    │
+         │                                                      │
+         │    LP-1: 0.033 ETH @ 0.02% fee (Rep: 98%)           │
+         │    LP-2: 0.032 ETH @ 0.05% fee (Rep: 95%)           │
+         │    LP-3: 0.033 ETH @ 0.03% fee (Rep: 97%)           │
+         └──────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+You:     Select LP-1
+
+         ┌──────────────────────────────────────────────────────┐
+         │  0.033 ETH locked in escrow smart contract           │
+         │  (not LP's wallet, not agent's wallet)              │
+         └──────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+You:     Send $100 via UPI/Venmo/Revolut
+
+         ┌──────────────────────────────────────────────────────┐
+         │  zkTLS proof generated from payment provider's TLS   │
+         │  Proof pinned to 0G Storage (immutable evidence)     │
+         │  KeeperHub verifies → triggers escrow release        │
+         └──────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+Result:  0.033 ETH in your wallet. No human involved.
 ```
 
-## Contract Deployments
+**Total human touchpoints: 2** (pick quote, confirm payment)  
+**Everything else: autonomous agents + smart contracts**
+
+---
+
+## Why Trust an AI?
+
+You don't. That's the point.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│  PROBLEM: "What if the agent lies about rates?"                │
+│                                                                 │
+│  ANSWER:  Every decision logged to 0G Storage.                 │
+│           Query: GET /decisions/0xYourWallet                    │
+│           See exactly why it picked LP-1 over LP-2.            │
+│           Cryptographic proof. Disputable on-chain.            │
+│                                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  PROBLEM: "What if someone ships a malicious agent?"           │
+│                                                                 │
+│  ANSWER:  0G Compute TEE attests the running code.             │
+│           Code hash verified before every session.              │
+│           Tampered binary ≠ attested hash → rejected.          │
+│                                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  PROBLEM: "What if the agent runs off with my money?"          │
+│                                                                 │
+│  ANSWER:  It can't. Funds sit in escrow contracts.             │
+│           Agent keys can broadcast, verify, log.               │
+│           Agent keys CANNOT sign escrow withdrawals.           │
+│           Release requires: valid proof OR timeout.            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## The Stack
+
+| Layer | Tech | What It Does |
+|-------|------|--------------|
+| **Chain** | 0G Galileo + Base | Escrow, reputation, settlement |
+| **Agent Memory** | 0G Storage | Persists decisions, preferences, LP rankings |
+| **Agent Integrity** | 0G Compute | TEE attestation — prove code = open source |
+| **P2P Mesh** | Gensyn AXL | Encrypted agent-to-agent, no central server |
+| **Automation** | KeeperHub | Deadline enforcement, payment triggers |
+| **Agent Payments** | x402 | HTTP-native micropayments between agents |
+| **Fiat Proof** | Reclaim zkTLS | Cryptographic proof of bank transfer |
+
+---
+
+## Proof
+
+Not "it should work." It works.
+
+| What | Tx Hash | Explorer |
+|------|---------|----------|
+| Agent state saved to 0G | `0x26734875...` | [View](https://chainscan-galileo.0g.ai/tx/0x267348752296ea6ac570cb13e1612b7aaef6d0c09cded81ee6d791def4bcf8bd) |
+| Escrow release on Base | `0x335f7fa8...` | [View](https://sepolia.basescan.org/tx/0x335f7fa891ca6171f506de68ebdf26f2bcafd5a79d967352de390ee7fea79c34) |
+| Evidence pinned (root) | `0x9eafd758...` | Stored on 0G Galileo |
+| KeeperHub execution | `edlm48vm0flt...` | Live workflow |
+
+**Contracts:**
 
 | Contract | 0G Galileo | Base Sepolia |
 |----------|------------|--------------|
 | Escrow | `0x31da867c...` | `0x42A50591...` |
-| RailRegistry | `0x8c7ffc95...` | `0x8E55f999...` |
 | AgentRegistry | `0x98efa762...` | `0xf03F328b...` |
 
-## One-Liner
+---
 
-> Aegis is the first fiat ↔ crypto onramp with zero human touchpoints. Wallet-embedded AI agents negotiate, verify, and settle — with every decision cryptographically provable on 0G.
+## Run It
 
-## License
+```bash
+git clone https://github.com/arko05roy/Aegis.git && cd Aegis
+pnpm install
+cp .env.example .env  # add PRIVATE_KEY
 
-MIT
+# Start AXL mesh (2 nodes)
+cd services/axl-node
+./node -config node-config.json &
+./node -config node-config-2.json &
+
+# Start backend
+pnpm run agent-server &
+pnpm run webhook-receiver &
+
+# Start frontend
+pnpm dev
+
+# Open http://localhost:3000/p2p
+# Connect wallet, type "swap 100 USD → ETH"
+```
+
+---
+
+<p align="center">
+  <br/>
+  <strong>Aegis</strong>
+  <br/>
+  <em>The onramp that doesn't require trust — because it can't break it.</em>
+  <br/>
+  <br/>
+</p>
