@@ -284,6 +284,121 @@ pnpm dev
 
 ---
 
+## Demo
+
+**Video:** [Watch on YouTube](https://youtube.com/watch?v=XXXXX) *(under 3 mins)*
+
+**Live Demo:** [aegis.example.com](https://aegis.example.com)
+
+---
+
+## SDKs & Protocol Features Used
+
+### 0G
+| SDK | Version | Usage |
+|-----|---------|-------|
+| `@0gfoundation/0g-ts-sdk` | ^1.2.6 | Storage client for agent memory and proof pinning |
+| `@0glabs/0g-serving-broker` | ^0.7.5 | Compute client for TEE attestation and verifiable inference |
+| 0G Chain (Galileo) | EVM L1 | Escrow contracts, AgentRegistry, reputation |
+
+### Gensyn AXL
+| Feature | Usage |
+|---------|-------|
+| AXL Node (Go binary) | Local P2P mesh node per user sandbox |
+| HTTP Bridge API | `/send`, `/recv`, `/topology`, `/mcp/{peer}/{svc}` |
+| Yggdrasil Transport | End-to-end encrypted NAT-transparent messaging |
+
+### KeeperHub
+| Feature | Usage |
+|---------|-------|
+| Workflow Execution | Payment release automation via webhook triggers |
+| Embedded Wallet | Non-custodial contract calls for `Escrow.release()` |
+| Cron Jobs | Deadline enforcement polling |
+
+---
+
+## Cross-Node AXL Demo
+
+The demo runs **two separate AXL nodes** on different ports to prove real P2P communication:
+
+```
+┌─────────────────┐                    ┌─────────────────┐
+│   AXL Node 1    │                    │   AXL Node 2    │
+│   :9002         │◄──── Yggdrasil ───►│   :9012         │
+│                 │      mesh          │                 │
+│  ┌───────────┐  │                    │  ┌───────────┐  │
+│  │Fiat Agent │  │   RFQ broadcast    │  │LP Agent   │  │
+│  │(buyer)    │──┼───────────────────►│  │(quoter)   │  │
+│  └───────────┘  │                    │  └───────────┘  │
+│                 │   quote response   │                 │
+│                 │◄───────────────────┼──│              │
+└─────────────────┘                    └─────────────────┘
+```
+
+**To verify:**
+```bash
+# Terminal 1: Start node on port 9002
+cd services/axl-node && ./node -config node-config.json
+
+# Terminal 2: Start node on port 9012
+cd services/axl-node && ./node -config node-config-2.json
+
+# Terminal 3: Run cross-node demo
+pnpm run demo:axl-cross-node
+```
+
+The script logs show messages traversing the mesh between separate OS processes — not in-memory IPC.
+
+---
+
+## Example Agent: Fiat Agent
+
+A working example agent that broadcasts RFQs and selects quotes:
+
+**Location:** [`/agents/fiat-agent/index.ts`](./agents/fiat-agent/index.ts)
+
+**What it does:**
+1. Initializes with AXL bridge, 0G Storage, and 0G Compute clients
+2. Broadcasts `rfq.get` messages to LP network over AXL mesh
+3. Collects `quote.sign` responses with timeout
+4. Scores quotes by `(rate × reputation) / fee`
+5. Logs decision to 0G Storage with Merkle root
+6. Commits to best quote via `order.commit`
+
+**Run it:**
+```bash
+pnpm run agent:fiat --amount 100 --from USD --to ETH
+```
+
+---
+
+## KeeperHub Feedback
+
+### Documentation Gaps
+
+1. **Webhook payload schema undocumented** — The `send-webhook` action accepts a body, but the exact structure expected by external receivers (headers, signing) isn't specified. We had to reverse-engineer by hitting `/echo` endpoints.
+
+2. **Embedded wallet permissions unclear** — Docs say the wallet is "non-custodial" but don't specify how to restrict which contract functions it can call. We assumed it can call any function on whitelisted addresses.
+
+3. **Workflow debugging** — No way to inspect intermediate state between workflow steps. When a workflow fails silently, there's no stack trace or variable dump.
+
+### Feature Requests
+
+1. **Typed workflow inputs** — Allow defining a JSON schema for workflow inputs so validation happens before execution, not mid-run.
+
+2. **Retry with backoff** — Built-in retry logic for transient RPC failures. Currently we wrap every contract call in manual retry loops.
+
+3. **Webhook signature verification** — Native HMAC verification step would save boilerplate. We wrote our own `verifyWebhookSignature()` helper.
+
+---
+
+## Team
+
+**Arko Roy** — Solo Developer  
+Telegram: [@arkoroy](https://t.me/arkoroy) · X: [@arko05roy](https://x.com/arko05roy)
+
+---
+
 ## License
 
 MIT
