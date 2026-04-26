@@ -27,14 +27,31 @@ export class FiatAgent extends BaseAgent {
       const quotes = this.pendingQuotes.get(quote.rfqId) || [];
       quotes.push(quote);
       this.pendingQuotes.set(quote.rfqId, quotes);
+      this.logDecision('quote.received', { lpAgent: quote.lpAgent, rate: quote.rate });
     });
 
     this.messageHandler.on('fiat.details', async (msg) => {
       console.log(`[FiatAgent] Received fiat details for order ${msg.data.orderId}`);
+      this.logDecision('fiat.details.received', { orderId: msg.data.orderId });
     });
   }
 
-  async broadcastRfq(intent: RfqGet['intent']): Promise<string> {
+  protected getStateSnapshot(): object {
+    const quotesObj: Record<string, QuoteSign[]> = {};
+    this.pendingQuotes.forEach((v, k) => { quotesObj[k] = v; });
+    return {
+      pendingQuotes: quotesObj,
+      supportedRails: this.fiatConfig.supportedRails,
+    };
+  }
+
+  protected restoreState(state: any): void {
+    if (state.pendingQuotes) {
+      this.pendingQuotes = new Map(Object.entries(state.pendingQuotes));
+    }
+  }
+
+  async broadcastRfq(intent: RfqGet['intent'], lpPubkeys: string[]): Promise<string> {
     const rfqId = `rfq_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
     const rfq: RfqGet = {
@@ -44,9 +61,44 @@ export class FiatAgent extends BaseAgent {
       ttl: 60,
     };
 
-    console.log(`[FiatAgent] Broadcasting RFQ: ${JSON.stringify(intent)}`);
+    console.log(`[FiatAgent] Broadcasting RFQ to ${lpPubkeys.length} LPs: ${JSON.stringify(intent)}`);
+
+    this.pendingQuotes.set(rfqId, []);
+
+    for (const lpPubkey of lpPubkeys) {
+      try {
+        await this.axl.send(lpPubkey, { type: 'rfq.get', rfqId, ...rfq });
+      } catch (err) {
+        console.error(`[FiatAgent] Failed to send RFQ to ${lpPubkey}:`, err);
+      }
+    }
 
     return rfqId;
+  }
+
+  getQuotesForRfq(rfqId: string): QuoteSign[] {
+    return this.pendingQuotes.get(rfqId) || [];
+  }
+
+  addQuote(rfqId: string, quote: QuoteSign): void {
+    const quotes = this.pendingQuotes.get(rfqId) || [];
+    quotes.push(quote);
+    this.pendingQuotes.set(rfqId, quotes);
+    console.log(`[FiatAgent] Added quote for ${rfqId}: ${quote.rate}`);
+  }
+
+  async commitToQuote(quote: QuoteSign): Promise<void> {
+    const commit = {
+      quoteId: quote.rfqId,
+      buyerAgent: await this.getAXLPublicKey(),
+      lpAgent: quote.lpAgent,
+      selectedRail: quote.rails[0],
+      antiGriefBondTx: '',
+      timestamp: Date.now(),
+    };
+
+    console.log(`[FiatAgent] Committing to quote from ${quote.lpAgent}`);
+    await this.axl.send(quote.lpAgent, { type: 'order.commit', ...commit });
   }
 
   async selectQuoteAndCommit(rfqId: string): Promise<OrderCommit | null> {

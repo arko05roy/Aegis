@@ -50,7 +50,7 @@ async function main() {
       toChain: '0g',
       amount: '100.00',
       rails: ['banksim'],
-    });
+    }, []);
     console.log(`   ✅ RFQ created: ${rfqId}`);
   } catch (err: any) {
     if (err.cause?.code === 'ECONNREFUSED') {

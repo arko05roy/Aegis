@@ -55,6 +55,58 @@ export class ZeroGCompute {
     const result = JSON.parse(data.choices[0].message.content);
     return { valid: result.valid, chatId };
   }
+
+  async makeVerifiableDecision(
+    prompt: string,
+    context: object
+  ): Promise<{ decision: any; chatId: string; verified: boolean }> {
+    if (!this.initialized) throw new Error('Broker not initialized');
+
+    const services = await this.listServices();
+    const chatbot = services.find((s: any) => s.serviceType === 'chatbot');
+    if (!chatbot) throw new Error('No chatbot service available');
+
+    const { endpoint, model } = await this.broker.inference.getServiceMetadata(chatbot.provider);
+    const headers = await this.broker.inference.getRequestHeaders(chatbot.provider);
+
+    const response = await fetch(`${endpoint}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an AI agent making financial decisions. Return only valid JSON. ${prompt}`,
+          },
+          { role: 'user', content: JSON.stringify(context) },
+        ],
+      }),
+    });
+
+    const data: any = await response.json();
+    const chatId = response.headers.get('ZG-Res-Key') || data.id || `decision-${Date.now()}`;
+
+    let verified = false;
+    if (chatId && chatId !== `decision-${Date.now()}`) {
+      try {
+        await this.broker.inference.processResponse(chatbot.provider, chatId);
+        verified = true;
+      } catch {
+        verified = false;
+      }
+    }
+
+    let decision;
+    try {
+      decision = JSON.parse(data.choices[0].message.content);
+    } catch {
+      decision = { raw: data.choices[0].message.content };
+    }
+
+    console.log(`[0G Compute] Decision made, chatId: ${chatId}, verified: ${verified}`);
+    return { decision, chatId, verified };
+  }
 }
 
 export async function verifyComputeSetup(privateKey: string): Promise<boolean> {

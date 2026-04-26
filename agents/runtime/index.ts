@@ -21,6 +21,8 @@ export abstract class BaseAgent {
   protected storage: ZeroGStorage;
   protected signer: ethers.Wallet;
   protected messageHandler: AXLMessageHandler;
+  protected decisionLog: { ts: number; action: string; data: any }[] = [];
+  private memoryHash: string | null = null;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -41,12 +43,57 @@ export abstract class BaseAgent {
     const topology = await this.axl.getTopology();
     console.log(`[${this.config.name}] AXL Public Key: ${topology.our_public_key}`);
 
+    await this.loadState();
     this.setupMessageHandlers();
 
     console.log(`[${this.config.name}] Initialized`);
   }
 
   protected abstract setupMessageHandlers(): void;
+  protected abstract getStateSnapshot(): object;
+  protected abstract restoreState(state: object): void;
+
+  protected logDecision(action: string, data: any): void {
+    this.decisionLog.push({ ts: Date.now(), action, data });
+    if (this.decisionLog.length > 100) this.decisionLog.shift();
+  }
+
+  async saveState(): Promise<string | null> {
+    try {
+      const snapshot = {
+        ...this.getStateSnapshot(),
+        decisions: this.decisionLog.slice(-20),
+      };
+      this.memoryHash = await this.storage.uploadMemory(this.config.name, snapshot);
+      console.log(`[${this.config.name}] State saved to 0G: ${this.memoryHash.slice(0, 16)}...`);
+      return this.memoryHash;
+    } catch (err) {
+      console.error(`[${this.config.name}] Failed to save state:`, err);
+      return null;
+    }
+  }
+
+  protected async loadState(): Promise<void> {
+    const hash = this.storage.getLatestMemoryHash(this.config.name);
+    if (!hash) {
+      console.log(`[${this.config.name}] No previous state found`);
+      return;
+    }
+
+    try {
+      const state = await this.storage.downloadMemory(hash);
+      if (state) {
+        this.restoreState(state);
+        console.log(`[${this.config.name}] State restored from 0G: ${hash.slice(0, 16)}...`);
+      }
+    } catch (err) {
+      console.error(`[${this.config.name}] Failed to load state:`, err);
+    }
+  }
+
+  getMemoryHash(): string | null {
+    return this.memoryHash;
+  }
 
   async start(): Promise<void> {
     console.log(`[${this.config.name}] Starting...`);

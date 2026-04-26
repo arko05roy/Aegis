@@ -83,7 +83,7 @@ async function main() {
     toChain: '0g',
     amount: '100.00',
     rails: ['banksim'],
-  });
+  }, [topology.our_public_key]);
   console.log(`│ RFQ broadcast: ${rfqId}`);
   console.log('└──────────────────────────────────────────────────────────┘\n');
 
