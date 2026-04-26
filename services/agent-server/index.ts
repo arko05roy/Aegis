@@ -241,6 +241,26 @@ class AgentServer {
     });
     return result;
   }
+
+  getDecisions(walletAddress: string): { fiat: any; crypto: any } | null {
+    const pair = this.agents.get(walletAddress.toLowerCase());
+    if (!pair) return null;
+
+    return {
+      fiat: {
+        agentName: pair.fiat.getName(),
+        attestation: pair.fiat.getAttestation(),
+        decisions: pair.fiat.getDecisionLog(),
+        memoryHash: pair.fiat.getMemoryHash(),
+      },
+      crypto: {
+        agentName: pair.crypto.getName(),
+        attestation: pair.crypto.getAttestation(),
+        decisions: pair.crypto.getDecisionLog(),
+        memoryHash: pair.crypto.getMemoryHash(),
+      },
+    };
+  }
 }
 
 // Create server
@@ -309,6 +329,15 @@ app.post('/verify', async (c) => {
   const context = await c.req.json();
   const result = await agentServer.verifyDecision(context);
   return c.json(result);
+});
+
+app.get('/decisions/:walletAddress', (c) => {
+  const walletAddress = c.req.param('walletAddress');
+  const decisions = agentServer.getDecisions(walletAddress);
+  if (!decisions) {
+    return c.json({ error: 'No agents found for wallet' }, 404);
+  }
+  return c.json(decisions);
 });
 
 // Start

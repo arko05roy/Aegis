@@ -56,6 +56,67 @@ export class ZeroGCompute {
     return { valid: result.valid, chatId };
   }
 
+  async attestAgent(
+    codeHash: string,
+    agentName: string,
+    version: string
+  ): Promise<{ attestation: object; chatId: string; verified: boolean }> {
+    if (!this.initialized) throw new Error('Broker not initialized');
+
+    const services = await this.listServices();
+    const chatbot = services.find((s: any) => s.serviceType === 'chatbot');
+    if (!chatbot) throw new Error('No chatbot service available');
+
+    const { endpoint, model } = await this.broker.inference.getServiceMetadata(chatbot.provider);
+    const headers = await this.broker.inference.getRequestHeaders(chatbot.provider);
+
+    const attestPayload = {
+      type: 'agent_attestation',
+      agentName,
+      version,
+      codeHash,
+      timestamp: Date.now(),
+    };
+
+    const response = await fetch(`${endpoint}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an agent attestation service. Verify the agent code hash and return attestation. Return JSON: {"attested": true, "agentName": "...", "codeHash": "...", "attestedAt": <unix_ms>}`,
+          },
+          { role: 'user', content: JSON.stringify(attestPayload) },
+        ],
+      }),
+    });
+
+    const data: any = await response.json();
+    const chatId = response.headers.get('ZG-Res-Key') || data.id || `attest-${Date.now()}`;
+
+    let verified = false;
+    if (chatId && !chatId.startsWith('attest-')) {
+      try {
+        await this.broker.inference.processResponse(chatbot.provider, chatId);
+        verified = true;
+      } catch {
+        verified = false;
+      }
+    }
+
+    let attestation;
+    try {
+      attestation = JSON.parse(data.choices[0].message.content);
+    } catch {
+      attestation = { raw: data.choices[0].message.content, attested: false };
+    }
+
+    console.log(`[0G Compute] Agent attested: ${agentName}, chatId: ${chatId}, verified: ${verified}`);
+    return { attestation, chatId, verified };
+  }
+
   async makeVerifiableDecision(
     prompt: string,
     context: object

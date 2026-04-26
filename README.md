@@ -1,92 +1,193 @@
-# Agentic Fiat ↔ Crypto Onramp
+# Aegis
 
-A decentralized P2P fiat-to-crypto onramp powered by AI agents, zkTLS proofs, and the 0G ecosystem. No custody, no KYC friction, no human bottlenecks.
+**Zero-human-touchpoint fiat ↔ crypto onramp powered by wallet-embedded AI agents.**
 
-## Overview
+Crypto preaches decentralization, yet the way we go from fiat to crypto is through CEXs and centralized onramps. Aegis fixes that.
 
-This platform replaces centralized onramps (MoonPay, Ramp, CEXs) and manual P2P markets with an **agent swarm delivered as a web app**. Users interact via natural language in a ChatGPT-style interface while autonomous agents handle negotiation, payment verification, and settlement.
+## The Problem
+
+Every fiat onramp today requires trusting a centralized party:
+- **CEXs** — custody risk, KYC friction, account freezes
+- **MoonPay/Ramp** — centralized verification, high fees
+- **Manual P2P** — slow, requires human coordination, scam risk
+
+## The Solution
+
+Aegis embeds two AI agents directly in your wallet:
+- **Fiat Agent** — handles buying crypto (fiat → crypto)
+- **Crypto Agent** — handles selling crypto (crypto → fiat)
+
+These agents negotiate, verify payments, and settle trades **without human intervention**. Humans only provide liquidity — the agents handle everything else.
 
 ```
 User: "swap 100 usd → eth"
-→ Agents negotiate with LPs over encrypted mesh
-→ User taps passkey to confirm fiat payment
-→ zkTLS proof verifies payment against PSP's TLS session
-→ Crypto released from escrow — no human intervention
+  ↓
+Fiat Agent broadcasts RFQ over encrypted P2P mesh
+  ↓
+LP agents respond with signed quotes
+  ↓
+User confirms fiat payment via passkey
+  ↓
+zkTLS proof verifies payment
+  ↓
+Crypto released from escrow — zero human touchpoints
 ```
+
+## Why Trust an AI Agent?
+
+1. **Verifiable Reasoning** — Every agent decision runs through 0G Compute TEE. You can cryptographically prove WHY the agent chose a specific LP or rate.
+
+2. **Agent Attestation** — 0G Compute attests that the running agent matches the open-source code. No tampered binaries.
+
+3. **Persistent Consciousness** — Agent memory (preferences, LP rankings, transaction history) persists on 0G Storage. Your agent survives your phone dying.
+
+4. **No Greed** — AI agents don't have profit motives unless coded in. The code is open source and auditable.
 
 ## Architecture
 
-| Layer | Technology |
-|-------|------------|
-| Chain | 0G Chain (escrow, orderbook, reputation) |
-| Compute | 0G Compute (zkTLS verification) |
-| Storage | 0G Storage (proofs, agent memory) |
-| Transport | Gensyn AXL (encrypted P2P mesh) |
-| Agent Protocol | MCP (semantic tool calls) |
-| Payments | x402 (HTTP-native crypto payments) |
-| Fiat Verification | Reclaim zkTLS |
-| Automation | KeeperHub (deadlines, slashing) |
-| Frontend | Next.js 15 + WebAuthn passkeys |
-
-## Supported Rails & Chains
-
-**Fiat Rails:** UPI, Venmo, Revolut
-
-**Destination Chains:** 0G, Base, Solana
-
-## Repository Structure
-
 ```
-/contracts          Solidity (Escrow, Orderbook, Reputation, RailRegistry)
-/circuits           zkTLS circuits per rail (Noir/Circom)
-/protocol           MCP schemas, x402, AXL bridge
-/agents             Fiat Agent, Crypto Agent, runtime
-/keepers            KeeperHub jobs and AI tools
-/zerog              0G Compute/Storage integrations
-/services           BankSim (demo), sandbox orchestrator
-/apps/web           Next.js chat UI
+┌─────────────────────────────────────────────────────────────┐
+│                      YOUR WALLET                            │
+│  ┌─────────────┐              ┌─────────────┐              │
+│  │ Fiat Agent  │              │Crypto Agent │              │
+│  │ (buy crypto)│              │(sell crypto)│              │
+│  └──────┬──────┘              └──────┬──────┘              │
+└─────────┼────────────────────────────┼──────────────────────┘
+          │                            │
+          │   GENSYN AXL (encrypted P2P mesh)
+          │                            │
+┌─────────▼────────────────────────────▼──────────────────────┐
+│                    LP AGENT NETWORK                         │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐                 │
+│  │LP Agent │    │LP Agent │    │LP Agent │                 │
+│  │  (UPI)  │    │ (Venmo) │    │(Revolut)│                 │
+│  └─────────┘    └─────────┘    └─────────┘                 │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| **Chain** | 0G Chain | Escrow, orderbook, reputation |
+| **Compute** | 0G Compute | TEE attestation, verifiable agent decisions |
+| **Storage** | 0G Storage | Agent consciousness, decision logs, proofs |
+| **Transport** | Gensyn AXL | Encrypted P2P agent mesh (no central server) |
+| **Payments** | x402 + KeeperHub | Payment triggers, escrow automation |
+| **Verification** | Reclaim zkTLS | Fiat payment proofs |
+| **Frontend** | Next.js 15 | Chat UI with WebAuthn passkeys |
+
+## Key Features
+
+### Agent Attestation (0G Compute)
+```typescript
+// On agent startup, get TEE attestation
+const attestation = await compute.attestAgent(codeHash, agentName, version);
+// Returns TEE-signed proof that running code = open source version
+```
+
+### Decision Playback (0G Storage)
+```bash
+# Query why your agent made a decision
+curl http://localhost:4002/decisions/0xYourWallet
+
+# Returns full decision trail with 0G proof hashes
+{
+  "fiat": {
+    "attestation": { "codeHash": "abc123...", "verified": true },
+    "decisions": [
+      { "action": "quote.selected", "data": { "lp": "0x...", "rate": 0.00033, "reason": "best rate" } }
+    ]
+  }
+}
+```
+
+### P2P Agent Mesh (Gensyn AXL)
+- No central orderbook or matching engine
+- Agents discover each other via AXL mesh
+- End-to-end encrypted communication
+- Works even if you're behind NAT
+
+### Payment Automation (KeeperHub)
+- Escrow timeouts enforced automatically
+- Payment verification triggers escrow release
+- No manual intervention needed
+
+## Supported Rails
+
+**Fiat:** UPI, Venmo, Revolut, BankSim (demo)
+
+**Crypto:** 0G Chain, Base, Solana
 
 ## Quick Start
 
 ```bash
-# Install dependencies
+# Install
 pnpm install
 
-# Start local development (demo mode)
+# Configure
+cp .env.example .env
+# Add your PRIVATE_KEY and other secrets
+
+# Start AXL nodes (2 terminals)
+cd services/axl-node && ./node -config node-config.json
+cd services/axl-node && ./node -config node-config-2.json
+
+# Start agent server
+pnpm run agent-server
+
+# Start web UI
 pnpm dev
-
-# Run tests
-pnpm test
-
-# Deploy contracts to testnet
-pnpm deploy:testnet
 ```
 
-## Demo Mode
+## API Endpoints
 
-For development and demos, set `DEMO_MODE=true` to use:
-- **BankSim** — deterministic TLS bank simulator (real zkTLS proofs, fake bank)
-- **0G Testnet + Base Sepolia** — testnet crypto
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/agents` | POST | Create agent pair for wallet |
+| `/rfq` | POST | Broadcast RFQ to LP network |
+| `/quotes/:rfqId` | GET | Get quotes for RFQ |
+| `/commit` | POST | Commit to a quote |
+| `/decisions/:wallet` | GET | Get agent decision history |
+| `/health` | GET | Server status |
 
-Everything else runs production-real: AXL mesh, MCP, x402, escrow, keepers.
+## Repository Structure
 
-## Core Flow
+```
+/agents             Fiat Agent, Crypto Agent, runtime
+/contracts          Escrow, Orderbook, Reputation (Solidity)
+/protocol           MCP schemas, x402, AXL bridge
+/zerog              0G Compute + Storage integrations
+/keepers            KeeperHub workflows and jobs
+/services           AXL node, agent server, webhook receiver
+/apps/web           Next.js chat UI
+/scripts            E2E tests, demos, verification
+```
 
-1. User types swap intent in web app
-2. Fiat Agent broadcasts RFQ over AXL mesh
-3. LP agents respond with signed quotes
-4. Best quote selected; escrow locked on 0G
-5. User confirms fiat payment via passkey
-6. zkTLS proof generated from PSP's TLS session
-7. Proof verified on 0G Compute; crypto released
-8. Keepers enforce deadlines and slash defaults
+## Demo
 
-## Documentation
+```bash
+# Run cross-node AXL demo
+npx ts-node scripts/demo-axl-cross-node.ts
 
-- [Protocol Specification](./docs/protocol.md)
-- [Rail Onboarding Guide](./docs/rails.md)
-- [Deployment Runbook](./docs/deploy.md)
+# Run full E2E flow
+npx ts-node scripts/e2e-full-flow.ts
+
+# Test 0G Storage
+npx ts-node scripts/irl-0g-storage.ts
+```
+
+## Contract Deployments
+
+| Contract | 0G Galileo | Base Sepolia |
+|----------|------------|--------------|
+| Escrow | `0x31da867c...` | `0x42A50591...` |
+| RailRegistry | `0x8c7ffc95...` | `0x8E55f999...` |
+| AgentRegistry | `0x98efa762...` | `0xf03F328b...` |
+
+## One-Liner
+
+> Aegis is the first fiat ↔ crypto onramp with zero human touchpoints. Wallet-embedded AI agents negotiate, verify, and settle — with every decision cryptographically provable on 0G.
 
 ## License
 

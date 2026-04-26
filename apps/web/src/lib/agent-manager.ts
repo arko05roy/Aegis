@@ -124,6 +124,19 @@ class WebAgentClient {
     return res.json();
   }
 
+  async getDecisions(walletAddress: string): Promise<{
+    fiat: { agentName: string; attestation: any; decisions: any[]; memoryHash: string | null };
+    crypto: { agentName: string; attestation: any; decisions: any[]; memoryHash: string | null };
+  } | null> {
+    try {
+      const res = await fetch(`${AGENT_SERVER_URL}/decisions/${walletAddress}`);
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
+  }
+
   getActiveCount(): number {
     return this.cache.size;
   }

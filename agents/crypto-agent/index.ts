@@ -1,7 +1,6 @@
 // agents/crypto-agent/index.ts
 import { BaseAgent, AgentConfig } from '../runtime/index';
 import { RfqGet, QuoteSign, FiatDetails } from '../../protocol/mcp/schemas';
-import { ZeroGCompute } from '../../zerog/compute/client';
 import { ethers } from 'ethers';
 
 interface CryptoAgentConfig extends Omit<AgentConfig, 'role'> {
@@ -18,24 +17,17 @@ interface CryptoAgentConfig extends Omit<AgentConfig, 'role'> {
 export class CryptoAgent extends BaseAgent {
   private lpConfig: CryptoAgentConfig;
   private activeOrders: Map<string, any> = new Map();
-  private compute: ZeroGCompute;
   private computeReady = false;
 
   constructor(config: CryptoAgentConfig) {
     super({ ...config, role: 'lp' });
     this.lpConfig = config;
-    this.compute = new ZeroGCompute();
-    this.initCompute();
   }
 
-  private async initCompute() {
-    try {
-      await this.compute.initialize(this.lpConfig.privateKey);
-      this.computeReady = true;
-      console.log('[CryptoAgent] 0G Compute ready');
-    } catch (err) {
-      console.warn('[CryptoAgent] 0G Compute not available:', err);
-    }
+  async initialize(): Promise<void> {
+    await super.initialize();
+    // Compute is now initialized by BaseAgent.attestSelf()
+    this.computeReady = this.getAttestation()?.verified ?? false;
   }
 
   protected setupMessageHandlers(): void {

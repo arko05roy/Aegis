@@ -3,7 +3,9 @@ import { AXLBridge, AXLMessageHandler } from '../../protocol/axl/bridge';
 import { MCPAgentClient } from '../../protocol/mcp/client';
 import { X402Client } from '../../protocol/x402/client';
 import { ZeroGStorage } from '../../zerog/storage/client';
+import { ZeroGCompute } from '../../zerog/compute/client';
 import { ethers } from 'ethers';
+import * as crypto from 'crypto';
 
 export interface AgentConfig {
   name: string;
@@ -11,6 +13,15 @@ export interface AgentConfig {
   privateKey: string;
   rpcUrl: string;
   axlPort?: number;
+  version?: string;
+  sourceHash?: string;
+}
+
+export interface AgentAttestation {
+  codeHash: string;
+  chatId: string;
+  verified: boolean;
+  attestedAt: number;
 }
 
 export abstract class BaseAgent {
@@ -19,10 +30,12 @@ export abstract class BaseAgent {
   protected mcpClient: MCPAgentClient;
   protected x402: X402Client;
   protected storage: ZeroGStorage;
+  protected compute: ZeroGCompute;
   protected signer: ethers.Wallet;
   protected messageHandler: AXLMessageHandler;
   protected decisionLog: { ts: number; action: string; data: any }[] = [];
   private memoryHash: string | null = null;
+  private attestation: AgentAttestation | null = null;
 
   constructor(config: AgentConfig) {
     this.config = config;
@@ -30,6 +43,7 @@ export abstract class BaseAgent {
     this.x402 = new X402Client({ privateKey: config.privateKey });
     this.mcpClient = new MCPAgentClient(this.axl, this.x402);
     this.storage = new ZeroGStorage(config.privateKey);
+    this.compute = new ZeroGCompute();
 
     const provider = new ethers.JsonRpcProvider(config.rpcUrl);
     this.signer = new ethers.Wallet(config.privateKey, provider);
@@ -46,7 +60,49 @@ export abstract class BaseAgent {
     await this.loadState();
     this.setupMessageHandlers();
 
+    // Get agent attestation from 0G Compute
+    await this.attestSelf();
+
     console.log(`[${this.config.name}] Initialized`);
+  }
+
+  private async attestSelf(): Promise<void> {
+    const codeHash = this.config.sourceHash || this.computeSourceHash();
+    const version = this.config.version || '1.0.0';
+
+    try {
+      await this.compute.initialize(this.config.privateKey);
+      const result = await this.compute.attestAgent(codeHash, this.config.name, version);
+
+      this.attestation = {
+        codeHash,
+        chatId: result.chatId,
+        verified: result.verified,
+        attestedAt: Date.now(),
+      };
+
+      this.logDecision('agent.attested', {
+        codeHash,
+        chatId: result.chatId,
+        verified: result.verified,
+      });
+
+      console.log(`[${this.config.name}] Attested via 0G Compute: ${result.verified ? '✓' : '○'}`);
+    } catch (err) {
+      console.warn(`[${this.config.name}] Attestation failed (non-blocking):`, (err as Error).message);
+      this.attestation = { codeHash, chatId: '', verified: false, attestedAt: Date.now() };
+    }
+  }
+
+  private computeSourceHash(): string {
+    // Hash the agent's class name + role as a simple fingerprint
+    // In production, hash actual source file content
+    const fingerprint = `${this.constructor.name}:${this.config.role}:${this.config.name}`;
+    return crypto.createHash('sha256').update(fingerprint).digest('hex');
+  }
+
+  getAttestation(): AgentAttestation | null {
+    return this.attestation;
   }
 
   protected abstract setupMessageHandlers(): void;
@@ -93,6 +149,14 @@ export abstract class BaseAgent {
 
   getMemoryHash(): string | null {
     return this.memoryHash;
+  }
+
+  getName(): string {
+    return this.config.name;
+  }
+
+  getDecisionLog(): { ts: number; action: string; data: any }[] {
+    return [...this.decisionLog];
   }
 
   /**

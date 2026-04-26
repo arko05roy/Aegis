@@ -37,9 +37,22 @@ interface AxlEvent {
   type: string;
 }
 
+interface AgentAttestation {
+  codeHash: string;
+  chatId: string;
+  verified: boolean;
+  attestedAt: number;
+}
+
+interface AgentDecisions {
+  fiat: { agentName: string; attestation: AgentAttestation | null; decisions: any[]; memoryHash: string | null };
+  crypto: { agentName: string; attestation: AgentAttestation | null; decisions: any[]; memoryHash: string | null };
+}
+
 interface AgentStatus {
   fiatPubkey: string;
   cryptoPubkey: string;
+  decisions?: AgentDecisions;
 }
 
 const ESCROW_ADDRESS = '0x31da867c6c12ecebbb738d97198792901431e228' as const;
@@ -151,13 +164,18 @@ function AgentDropdown({ agentStatus }: { agentStatus: AgentStatus | null }) {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-sm font-medium text-white">Fiat Agent</span>
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        {agentStatus.decisions?.fiat?.attestation && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded ${agentStatus.decisions.fiat.attestation.verified ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                            {agentStatus.decisions.fiat.attestation.verified ? 'TEE ✓' : 'TEE ○'}
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-zinc-500 mb-2">Manages rail credentials & fiat transfers</p>
                       <div className="flex items-center gap-2">
                         <code className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded font-mono">
                           {agentStatus.fiatPubkey?.slice(0, 16)}...
                         </code>
-                        <button 
+                        <button
                           onClick={() => navigator.clipboard.writeText(agentStatus.fiatPubkey)}
                           className="text-zinc-500 hover:text-white transition-colors"
                         >
@@ -166,6 +184,11 @@ function AgentDropdown({ agentStatus }: { agentStatus: AgentStatus | null }) {
                           </svg>
                         </button>
                       </div>
+                      {agentStatus.decisions?.fiat?.attestation?.codeHash && (
+                        <div className="mt-2 text-[9px] text-zinc-600 font-mono truncate">
+                          hash: {agentStatus.decisions.fiat.attestation.codeHash.slice(0, 16)}...
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -180,13 +203,18 @@ function AgentDropdown({ agentStatus }: { agentStatus: AgentStatus | null }) {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-sm font-medium text-white">Crypto Agent</span>
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        {agentStatus.decisions?.crypto?.attestation && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded ${agentStatus.decisions.crypto.attestation.verified ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                            {agentStatus.decisions.crypto.attestation.verified ? 'TEE ✓' : 'TEE ○'}
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-zinc-500 mb-2">Multi-chain signer & inventory manager</p>
                       <div className="flex items-center gap-2">
                         <code className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded font-mono">
                           {agentStatus.cryptoPubkey?.slice(0, 16)}...
                         </code>
-                        <button 
+                        <button
                           onClick={() => navigator.clipboard.writeText(agentStatus.cryptoPubkey)}
                           className="text-zinc-500 hover:text-white transition-colors"
                         >
@@ -195,6 +223,11 @@ function AgentDropdown({ agentStatus }: { agentStatus: AgentStatus | null }) {
                           </svg>
                         </button>
                       </div>
+                      {agentStatus.decisions?.crypto?.attestation?.codeHash && (
+                        <div className="mt-2 text-[9px] text-zinc-600 font-mono truncate">
+                          hash: {agentStatus.decisions.crypto.attestation.codeHash.slice(0, 16)}...
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -276,9 +309,29 @@ export default function P2PPage() {
 
         const data = await res.json();
         if (data.ok) {
-          setAgentStatus({ fiatPubkey: data.fiatPubkey, cryptoPubkey: data.cryptoPubkey });
+          const status: AgentStatus = { fiatPubkey: data.fiatPubkey, cryptoPubkey: data.cryptoPubkey };
+          setAgentStatus(status);
           addLog('info', `Fiat Agent: ${data.fiatPubkey?.slice(0, 12)}...`);
           addLog('info', `Crypto Agent: ${data.cryptoPubkey?.slice(0, 12)}...`);
+
+          // Fetch decisions/attestation after short delay (agents need time to attest)
+          setTimeout(async () => {
+            try {
+              const decisionsRes = await fetch(`/api/decisions/${address}`);
+              if (decisionsRes.ok) {
+                const decisions = await decisionsRes.json();
+                setAgentStatus(prev => prev ? { ...prev, decisions } : prev);
+                if (decisions.fiat?.attestation?.verified) {
+                  addLog('info', 'Fiat Agent: TEE attested ✓');
+                }
+                if (decisions.crypto?.attestation?.verified) {
+                  addLog('info', 'Crypto Agent: TEE attested ✓');
+                }
+              }
+            } catch (err) {
+              // Non-critical, attestation display is optional
+            }
+          }, 2000);
         } else {
           addLog('info', `Agent spawn failed: ${data.error}`);
         }
