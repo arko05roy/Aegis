@@ -90,39 +90,39 @@ Agents handle negotiation only. Funds remain in escrow contracts until zkTLS pro
 
 ## How Aegis Uses 0G
 
-[0G](https://0g.ai) provides the decentralized infrastructure layer for Aegis — storage, compute, and settlement.
+[0G](https://0g.ai) provides the decentralized infrastructure layer — storage, compute, and settlement.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                            0G NETWORK                               │
+├─────────────────────┬─────────────────────┬─────────────────────────┤
+│                     │                     │                         │
+│    0G STORAGE       │    0G COMPUTE       │    0G CHAIN (Galileo)   │
+│                     │                     │                         │
+│  ┌───────────────┐  │  ┌───────────────┐  │  ┌───────────────────┐  │
+│  │ Agent Memory  │  │  │ TEE Attestation│  │  │ Escrow Contracts │  │
+│  │ Decision Logs │  │  │ Code Integrity │  │  │ Agent Registry   │  │
+│  │ Payment Proofs│  │  │ Verifiable AI  │  │  │ Reputation System│  │
+│  └───────────────┘  │  └───────────────┘  │  └───────────────────┘  │
+│                     │                     │                         │
+└─────────────────────┴─────────────────────┴─────────────────────────┘
+```
 
 ### 0G Storage
 
-Agent decisions are persisted on-chain via 0G's distributed storage network. Every quote selection, LP ranking update, and pricing decision is logged with a Merkle root hash.
+Every agent decision is logged to 0G's distributed storage network with a Merkle root hash. This creates an immutable audit trail — if an agent claims it picked LP-1 for the best rate, anyone can verify by querying the decision log.
 
-```typescript
-// zerog/storage/client.ts
-await storage.uploadMemory(agentId, {
-  decision: "selected LP-1 over LP-2",
-  reason: "0.02% lower fee, 98% reputation",
-  timestamp: Date.now()
-});
-// Returns: Merkle root hash for on-chain reference
-```
-
-Payment proofs from zkTLS are also pinned here — the evidence blob is stored on 0G, and only the root hash goes on-chain to the escrow contract.
+Payment proofs work the same way: the zkTLS evidence blob is stored on 0G, and only the compact root hash is written on-chain. This keeps gas costs low while preserving full dispute evidence.
 
 ### 0G Compute
 
-Agent code integrity is verified through 0G's TEE (Trusted Execution Environment) network. Before any agent session, the code hash is attested:
+Before any agent session starts, its code hash is attested by 0G's TEE (Trusted Execution Environment) network. This proves the running binary matches the open-source release — no tampering, no hidden logic.
 
-```typescript
-// zerog/compute/client.ts
-const attestation = await compute.attestAgent(codeHash, "fiat-agent", "1.0.0");
-// TEE signature proves: this binary matches the open-source release
-```
-
-LP pricing decisions can also run through verifiable inference — the agent queries 0G Compute for optimal spread calculations, and the response includes a `chatId` for auditability.
+LP agents can also run pricing decisions through verifiable inference. The TEE signs the output, so buyers know the quoted spread came from the declared pricing model, not a manipulated one.
 
 ### 0G Chain (Galileo)
 
-Escrow contracts, agent registry, and reputation tracking live on 0G's EVM-compatible L1. Settlement happens here or on Base depending on the user's destination chain preference.
+Escrow contracts, agent registration, and reputation scores live on 0G's EVM-compatible L1. When a user completes a swap, settlement happens here (or on Base, depending on destination chain preference).
 
 ---
 
@@ -130,48 +130,40 @@ Escrow contracts, agent registry, and reputation tracking live on 0G's EVM-compa
 
 [Gensyn AXL](https://docs.gensyn.ai/tech/agent-exchange-layer) is the encrypted P2P mesh that connects all agents — no central server, no orderbook.
 
-### Transport Layer
-
-Each user sandbox runs a local AXL node (Go binary, no root/TUN required). The node joins a Yggdrasil-based mesh with automatic NAT traversal and end-to-end encryption.
-
-```typescript
-// protocol/axl/bridge.ts
-const bridge = new AXLBridge("http://127.0.0.1:9002");
-const topology = await bridge.getTopology();
-// { publicKey: "...", ipv6: "...", peers: [...] }
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         AXL MESH NETWORK                            │
+│                                                                     │
+│     ┌──────────┐          Yggdrasil           ┌──────────┐         │
+│     │  User's  │◄─────── encrypted ─────────►│   LP's   │         │
+│     │  Fiat    │          P2P mesh            │  Crypto  │         │
+│     │  Agent   │                              │  Agent   │         │
+│     └────┬─────┘                              └────┬─────┘         │
+│          │                                        │                │
+│          │  1. "I want to swap $100 → ETH"        │                │
+│          ├───────────────────────────────────────►│                │
+│          │                                        │                │
+│          │  2. "0.033 ETH @ 0.02% fee"            │                │
+│          │◄───────────────────────────────────────┤                │
+│          │                                        │                │
+│     No central server. No orderbook. Just agents talking.          │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Agent Messaging
+### How It Works
 
-Agents communicate via fire-and-forget messages. The Fiat Agent broadcasts RFQ requests; LP Crypto Agents respond with signed quotes.
+Each user runs a local AXL node — a lightweight Go binary that joins the Yggdrasil mesh. NAT traversal is automatic, and all messages are end-to-end encrypted by default.
 
-```typescript
-// Fiat Agent broadcasts to LP network
-await bridge.send(lpPeerId, {
-  type: "rfq.get",
-  payload: { amount: 100, fromCurrency: "USD", toCurrency: "ETH" }
-});
+When you type "swap 100 USD → ETH", your Fiat Agent broadcasts a request-for-quote (RFQ) to the mesh. LP agents listening on that topic respond with signed quotes. Your agent scores them by rate, fee, and reputation — then commits to the best one.
 
-// LP Agent responds with quote
-await bridge.send(buyerPeerId, {
-  type: "quote.sign",
-  payload: { rate: 0.00033, fee: 0.0002, ttl: 30000 }
-});
-```
+### Why P2P Matters
 
-### MCP over AXL
+Traditional onramps match orders on a central server. That server sees every trade, controls the orderbook, and can freeze accounts. AXL removes the server entirely — agents negotiate directly, and the only shared state is the escrow contract.
 
-Agents expose [MCP](https://modelcontextprotocol.io) tool manifests. Any agent can invoke another agent's tools via the AXL bridge:
+### MCP Integration
 
-```typescript
-// JSON-RPC to remote agent's MCP service
-const result = await bridge.mcpCall(peerId, "crypto-agent", "getQuote", {
-  amount: 100,
-  pair: "USD/ETH"
-});
-```
-
-This enables dynamic tool composition — agents discover and call each other's capabilities at runtime.
+Agents expose their capabilities as [MCP](https://modelcontextprotocol.io) tools. Any agent can discover and call another agent's tools over the mesh — get a quote, check reputation, request fiat details. This enables dynamic composition without hardcoded integrations.
 
 ---
 
@@ -179,42 +171,52 @@ This enables dynamic tool composition — agents discover and call each other's 
 
 [KeeperHub](https://keeperhub.xyz) provides trustless automation — deadline enforcement, payment triggers, and conditional escrow release.
 
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      KEEPERHUB AUTOMATION                           │
+│                                                                     │
+│   DEADLINE ENFORCEMENT                 PAYMENT RELEASE              │
+│   ────────────────────                 ───────────────              │
+│                                                                     │
+│   ┌─────────┐                          ┌─────────┐                  │
+│   │ Escrow  │  order expires           │  Bank   │  payment sent    │
+│   │ Contract│  in 30 seconds           │   PSP   │                  │
+│   └────┬────┘                          └────┬────┘                  │
+│        │                                    │                       │
+│        ▼                                    ▼                       │
+│   ┌─────────┐                          ┌─────────┐                  │
+│   │ Keeper  │  calls expire()          │ Webhook │  HMAC verified   │
+│   │   Job   │  refunds LP              │ Handler │                  │
+│   └─────────┘  slashes buyer bond      └────┬────┘                  │
+│                                             │                       │
+│                                             ▼                       │
+│                                        ┌─────────┐                  │
+│                                        │ Escrow  │  release()       │
+│                                        │ Contract│  crypto sent     │
+│                                        └─────────┘                  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 ### Deadline Enforcement
 
-A background keeper job polls the escrow contract for locked orders approaching their deadline. If the buyer fails to submit proof in time, the keeper calls `expire()` to refund the LP and slash the buyer's anti-grief bond.
+A keeper job continuously monitors the escrow contract for locked orders approaching their deadline. If the buyer doesn't submit payment proof in time, the keeper automatically expires the order — refunding the LP's locked crypto and slashing the buyer's anti-grief bond.
 
-```typescript
-// keepers/jobs/pushExpire.ts
-const lockedOrders = await escrow.getLockedOrders();
-for (const orderId of lockedOrders) {
-  const deadline = await escrow.getOrderDeadline(orderId);
-  if (timeLeft <= deadlineBufferSeconds) {
-    await escrow.expire(orderId);  // Refund LP, slash buyer bond
-  }
-}
-```
+This prevents griefing attacks where a buyer locks up LP funds with no intention of paying.
 
-### Payment Verification Workflow
+### Payment Release
 
-When a fiat payment is confirmed, the PSP sends a webhook to KeeperHub. The workflow:
+When the buyer's bank confirms the fiat transfer, the payment provider sends a webhook to KeeperHub. The workflow verifies the HMAC signature, checks that amount/currency/receiver match the locked order, pins the evidence to 0G Storage, and triggers the escrow release.
 
-1. Verifies HMAC signature from the payment provider
-2. Validates amount/currency/receiver match the locked order
-3. Pins the evidence blob to 0G Storage
-4. Triggers `Escrow.release(orderId, evidenceHash)` on-chain
-
-```typescript
-// agents/payment-verify/webhook.ts
-const evidenceHash = await pinEvidence(payload, signature);
-await triggerKeeperHubRelease(orderId, evidenceHash, amount, currency);
-// KeeperHub workflow executes Escrow.release() with embedded wallet
-```
+The crypto moves to the buyer's wallet — no human approval needed.
 
 ### Why KeeperHub?
 
-- **Non-custodial**: KeeperHub's embedded wallet only has permission to call specific contract functions
-- **Reliable**: Workflows run on KeeperHub infrastructure, not user devices
-- **Auditable**: Every execution is logged with an `executionId` for on-chain correlation
+| Property | Benefit |
+|----------|---------|
+| Non-custodial | KeeperHub's wallet can only call specific contract functions — it cannot steal funds |
+| Reliable | Workflows run on KeeperHub infrastructure, not user devices that might go offline |
+| Auditable | Every execution is logged with a unique ID, traceable on-chain |
 
 ---
 
