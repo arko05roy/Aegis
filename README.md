@@ -28,9 +28,9 @@
 
 ## The Irony
 
-Crypto was supposed to eliminate middlemen.
+Onboarding into crypto, DeFi, and decentralization requires you to interact with centralized servers.
 
-Yet **$50B+ flows through centralized onramps every year:**
+**The gateway to decentralization is centralization.**
 
 ```
 Coinbase       →  Custodies your funds, freezes accounts at will
@@ -38,7 +38,7 @@ MoonPay        →  5% fees, centralized verification, your data sold
 LocalBitcoins  →  Meet strangers, hope they don't scam you
 ```
 
-**We built trustless money, then wrapped it in trust-required onramps.**
+**$50B+ flows through these centralized onramps every year.** Aegis changes that.
 
 ---
 
