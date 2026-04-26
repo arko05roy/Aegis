@@ -288,7 +288,7 @@ pnpm dev
 
 **Video:** [Watch on YouTube](https://youtube.com/watch?v=XXXXX) *(under 3 mins)*
 
-**Live Demo:** [aegis.example.com](https://aegis.example.com)
+**Live Demo:** [aegis-ten-hazel.vercel.app](https://aegis-ten-hazel.vercel.app)
 
 ---
 
