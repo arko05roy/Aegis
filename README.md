@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/AEGIS-Zero%20Human%20Touchpoints-000000?style=for-the-badge&labelColor=10B981&color=000000" alt="Aegis" />
+  <img src="https://img.shields.io/badge/AEGIS-Decentralized%20Onramp-000000?style=for-the-badge&labelColor=10B981&color=000000" alt="Aegis" />
 </p>
 
-<h1 align="center">Fiat ↔ Crypto Without Trusting Anyone</h1>
+<h1 align="center">The First Decentralized Fiat ↔ Crypto Onramp</h1>
 
 <p align="center">
-  <strong>$50 billion flows through centralized onramps every year.</strong><br/>
-  Aegis replaces them with AI agents that can't steal your money — by design.
+  <strong>Autonomous AI agents + zkTLS proofs + P2P negotiation.</strong><br/>
+  No CEX. No custodian. No middleman. Just math and code.
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
 Crypto was supposed to eliminate middlemen.
 
-Yet every time you convert fiat to crypto, you hand your money to one:
+Yet **$50B+ flows through centralized onramps every year:**
 
 ```
 Coinbase       →  Custodies your funds, freezes accounts at will
@@ -39,6 +39,21 @@ LocalBitcoins  →  Meet strangers, hope they don't scam you
 ```
 
 **We built trustless money, then wrapped it in trust-required onramps.**
+
+---
+
+## The Moat
+
+**Decentralized AI agents that onramp for you.**
+
+| What | How |
+|------|-----|
+| **P2P Negotiation** | Agents find LPs over encrypted mesh — no orderbook, no server |
+| **zkTLS Verification** | Cryptographic proof of fiat payment from bank's TLS session |
+| **Trustless Escrow** | Funds in smart contracts, released only with valid proof |
+| **Verifiable Agents** | TEE-attested code — you can prove the agent isn't tampered |
+
+No human in the loop. No company holding your money. Just agents, proofs, and contracts.
 
 ---
 
