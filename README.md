@@ -45,29 +45,18 @@ MoonPay        →  5% fees, centralized verification, your data sold
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                              USER WALLET                                  │
-│  ┌─────────────┐                                      ┌─────────────┐    │
-│  │ Fiat Agent  │◄────── AXL P2P Mesh ───────────────►│ Crypto Agent│    │
-│  └──────┬──────┘                                      └──────┬──────┘    │
-│         │                                                    │           │
-│         │  broadcast/receive quotes                          │           │
-│         └────────────────────┬───────────────────────────────┘           │
-│                              ▼                                            │
-│                    ┌─────────────────┐                                   │
-│                    │  Escrow Contract │ ◄── funds locked here            │
-│                    └────────┬────────┘                                   │
-│                             │                                            │
-└─────────────────────────────┼────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│   0G Storage  │    │  0G Compute   │    │   KeeperHub   │
-│   (decision   │    │  (TEE         │    │   (escrow     │
-│    logs)      │    │   attestation)│    │    automation)│
-└───────────────┘    └───────────────┘    └───────────────┘
+```mermaid
+flowchart TB
+    subgraph Wallet["USER WALLET"]
+        FA[Fiat Agent]
+        CA[Crypto Agent]
+        FA <-->|AXL P2P Mesh| CA
+        FA & CA -->|broadcast/receive quotes| Escrow[Escrow Contract]
+    end
+    
+    Escrow -->|settlement| Storage["0G Storage<br/>(decision logs)"]
+    Escrow -->|verification| Compute["0G Compute<br/>(TEE attestation)"]
+    Escrow -->|automation| Keeper["KeeperHub<br/>(escrow automation)"]
 ```
 
 Agents handle negotiation only. Funds remain in escrow contracts until zkTLS proof verification triggers release.
@@ -92,20 +81,25 @@ Agents handle negotiation only. Funds remain in escrow contracts until zkTLS pro
 
 [0G](https://0g.ai) provides the decentralized infrastructure layer — storage, compute, and settlement.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                            0G NETWORK                               │
-├─────────────────────┬─────────────────────┬─────────────────────────┤
-│                     │                     │                         │
-│    0G STORAGE       │    0G COMPUTE       │    0G CHAIN (Galileo)   │
-│                     │                     │                         │
-│  ┌───────────────┐  │  ┌───────────────┐  │  ┌───────────────────┐  │
-│  │ Agent Memory  │  │  │ TEE Attestation│  │  │ Escrow Contracts │  │
-│  │ Decision Logs │  │  │ Code Integrity │  │  │ Agent Registry   │  │
-│  │ Payment Proofs│  │  │ Verifiable AI  │  │  │ Reputation System│  │
-│  └───────────────┘  │  └───────────────┘  │  └───────────────────┘  │
-│                     │                     │                         │
-└─────────────────────┴─────────────────────┴─────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph ZeroG["0G NETWORK"]
+        subgraph Storage["0G STORAGE"]
+            S1[Agent Memory]
+            S2[Decision Logs]
+            S3[Payment Proofs]
+        end
+        subgraph Compute["0G COMPUTE"]
+            C1[TEE Attestation]
+            C2[Code Integrity]
+            C3[Verifiable AI]
+        end
+        subgraph Chain["0G CHAIN (Galileo)"]
+            G1[Escrow Contracts]
+            G2[Agent Registry]
+            G3[Reputation System]
+        end
+    end
 ```
 
 ### 0G Storage
@@ -130,25 +124,17 @@ Escrow contracts, agent registration, and reputation scores live on 0G's EVM-com
 
 [Gensyn AXL](https://docs.gensyn.ai/tech/agent-exchange-layer) is the encrypted P2P mesh that connects all agents — no central server, no orderbook.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         AXL MESH NETWORK                            │
-│                                                                     │
-│     ┌──────────┐          Yggdrasil           ┌──────────┐         │
-│     │  User's  │◄─────── encrypted ─────────►│   LP's   │         │
-│     │  Fiat    │          P2P mesh            │  Crypto  │         │
-│     │  Agent   │                              │  Agent   │         │
-│     └────┬─────┘                              └────┬─────┘         │
-│          │                                        │                │
-│          │  1. "I want to swap $100 → ETH"        │                │
-│          ├───────────────────────────────────────►│                │
-│          │                                        │                │
-│          │  2. "0.033 ETH @ 0.02% fee"            │                │
-│          │◄───────────────────────────────────────┤                │
-│          │                                        │                │
-│     No central server. No orderbook. Just agents talking.          │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    box AXL MESH NETWORK (Yggdrasil encrypted P2P)
+        participant FA as User's Fiat Agent
+        participant LP as LP's Crypto Agent
+    end
+    
+    FA->>LP: 1. "I want to swap $100 → ETH"
+    LP-->>FA: 2. "0.033 ETH @ 0.02% fee"
+    
+    Note over FA,LP: No central server. No orderbook.<br/>Just agents talking.
 ```
 
 ### How It Works
@@ -171,31 +157,20 @@ Agents expose their capabilities as [MCP](https://modelcontextprotocol.io) tools
 
 [KeeperHub](https://keeperhub.xyz) provides trustless automation — deadline enforcement, payment triggers, and conditional escrow release.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      KEEPERHUB AUTOMATION                           │
-│                                                                     │
-│   DEADLINE ENFORCEMENT                 PAYMENT RELEASE              │
-│   ────────────────────                 ───────────────              │
-│                                                                     │
-│   ┌─────────┐                          ┌─────────┐                  │
-│   │ Escrow  │  order expires           │  Bank   │  payment sent    │
-│   │ Contract│  in 30 seconds           │   PSP   │                  │
-│   └────┬────┘                          └────┬────┘                  │
-│        │                                    │                       │
-│        ▼                                    ▼                       │
-│   ┌─────────┐                          ┌─────────┐                  │
-│   │ Keeper  │  calls expire()          │ Webhook │  HMAC verified   │
-│   │   Job   │  refunds LP              │ Handler │                  │
-│   └─────────┘  slashes buyer bond      └────┬────┘                  │
-│                                             │                       │
-│                                             ▼                       │
-│                                        ┌─────────┐                  │
-│                                        │ Escrow  │  release()       │
-│                                        │ Contract│  crypto sent     │
-│                                        └─────────┘                  │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph KH["KEEPERHUB AUTOMATION"]
+        subgraph DE["DEADLINE ENFORCEMENT"]
+            E1[Escrow Contract] -->|order expires| K1[Keeper Job]
+            K1 -->|"expire() → refund LP, slash buyer"| E1
+        end
+        
+        subgraph PR["PAYMENT RELEASE"]
+            B1[Bank PSP] -->|payment sent| W1[Webhook Handler]
+            W1 -->|HMAC verified| E2[Escrow Contract]
+            E2 -->|"release() → crypto sent"| User((User Wallet))
+        end
+    end
 ```
 
 ### Deadline Enforcement
@@ -321,18 +296,18 @@ pnpm dev
 
 The demo runs **two separate AXL nodes** on different ports to prove real P2P communication:
 
-```
-┌─────────────────┐                    ┌─────────────────┐
-│   AXL Node 1    │                    │   AXL Node 2    │
-│   :9002         │◄──── Yggdrasil ───►│   :9012         │
-│                 │      mesh          │                 │
-│  ┌───────────┐  │                    │  ┌───────────┐  │
-│  │Fiat Agent │  │   RFQ broadcast    │  │LP Agent   │  │
-│  │(buyer)    │──┼───────────────────►│  │(quoter)   │  │
-│  └───────────┘  │                    │  └───────────┘  │
-│                 │   quote response   │                 │
-│                 │◄───────────────────┼──│              │
-└─────────────────┘                    └─────────────────┘
+```mermaid
+sequenceDiagram
+    box rgb(30,40,60) AXL Node 1 [:9002]
+        participant FA as Fiat Agent (buyer)
+    end
+    box rgb(40,50,70) AXL Node 2 [:9012]
+        participant LP as LP Agent (quoter)
+    end
+    
+    Note over FA,LP: Yggdrasil mesh (separate OS processes)
+    FA->>LP: RFQ broadcast
+    LP-->>FA: quote response
 ```
 
 **To verify:**
