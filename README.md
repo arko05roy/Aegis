@@ -45,34 +45,38 @@ MoonPay        →  5% fees, centralized verification, your data sold
 
 ## Architecture
 
-### G.14 Trust-Minimized Fiat Edge
+### Trust-Minimized Settlement
 
 Aegis uses a **4-agent model** where no single agent has unilateral release power:
 
-```mermaid
-flowchart TB
-    subgraph Buyer["BUYER SIDE"]
-        FA[Fiat Agent<br/>Rails & Intent]
-    end
-    
-    subgraph LP["LP SIDE"]
-        CA[Crypto Agent<br/>Quotes & Signing]
-    end
-    
-    subgraph Settlement["SETTLEMENT LAYER"]
-        WA[Watcher Agent<br/>Observe Payments]
-        AA[Attestation Agent<br/>Generate Proofs]
-    end
-    
-    FA <-->|AXL Mesh| CA
-    CA -->|lock with receiverCommitment| Escrow[Escrow Contract]
-    
-    PSP[Bank/PSP Webhook] -->|payment event| WA
-    WA -->|observation| AA
-    AA -->|pin evidence| Storage["0G Storage"]
-    AA -->|release(evidenceHash)| Escrow
-    
-    Escrow -->|crypto released| Buyer
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           AEGIS ARCHITECTURE                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   BUYER SIDE              LP SIDE                 SETTLEMENT LAYER      │
+│  ┌──────────┐           ┌──────────┐           ┌────────────────────┐   │
+│  │  Fiat    │◄─────────►│  Crypto  │           │   Watcher Agent    │   │
+│  │  Agent   │  AXL Mesh │  Agent   │           │   (observe only)   │   │
+│  └──────────┘           └────┬─────┘           └─────────┬──────────┘   │
+│                              │                           │              │
+│                              │ lock + commitment         │ observation  │
+│                              ▼                           ▼              │
+│                        ┌──────────┐             ┌────────────────────┐  │
+│                        │  Escrow  │◄────────────│ Attestation Agent  │  │
+│                        │ Contract │   release   │  (prove + submit)  │  │
+│                        └────┬─────┘             └─────────┬──────────┘  │
+│                             │                             │             │
+│                             │ crypto                      │ pin         │
+│                             ▼                             ▼             │
+│                        ┌──────────┐             ┌────────────────────┐  │
+│                        │  Buyer   │             │    0G Storage      │  │
+│                        │  Wallet  │             │  (evidence blob)   │  │
+│                        └──────────┘             └────────────────────┘  │
+│                                                                         │
+│   Bank/PSP ──webhook──► Watcher ──observation──► Attestor ──release──►  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Safety Rule:** *Watchers observe, Attestors prove, Escrow decides.*
@@ -84,7 +88,7 @@ flowchart TB
 | Watcher Agent | Observes payment webhooks, validates HMAC | Cannot release — only forwards |
 | Attestation Agent | Validates observations, pins proofs | Cannot release without valid evidence |
 
-The crypto release path is **deterministic** — escrow releases only when evidence matches pre-committed `receiverCommitment` and order constraints.
+The crypto release path is **deterministic** — escrow releases only when evidence matches pre-committed receiver and order constraints.
 
 ---
 
@@ -222,39 +226,50 @@ The crypto moves to the buyer's wallet — no human approval needed.
 
 ---
 
-## Transaction Flow (G.14)
+## Transaction Flow
 
-```mermaid
-sequenceDiagram
-    participant Buyer
-    participant FA as Fiat Agent
-    participant CA as Crypto Agent (LP)
-    participant Escrow
-    participant WA as Watcher Agent
-    participant AA as Attestation Agent
-    participant 0G as 0G Storage
-
-    Buyer->>FA: 1. "Swap 100 USD → ETH"
-    FA->>CA: 2. RFQ broadcast (AXL mesh)
-    CA-->>FA: 3. Quote (rate, fee, receiverCommitment)
-    FA->>CA: 4. Accept quote
-    CA->>Escrow: 5. lockWithCommitments(receiverCommitment, referenceHash)
-    Note over Escrow: Crypto locked + LP payment details committed
-    
-    Buyer->>PSP: 6. Pay via bank/UPI/Venmo
-    PSP->>WA: 7. Webhook (HMAC signed)
-    WA->>WA: 8. Validate HMAC, correlate to order
-    WA->>AA: 9. Forward observation
-    AA->>AA: 10. Validate: amount, receiver, reference
-    AA->>0G: 11. Pin evidence blob
-    AA->>Escrow: 12. release(orderIdHash, evidenceHash)
-    Escrow->>Buyer: 13. Crypto released
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                            SETTLEMENT FLOW                                 │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│  1. Buyer ──"swap 100 USD→ETH"──► Fiat Agent                               │
+│                                        │                                   │
+│  2. Fiat Agent ──RFQ broadcast──► Crypto Agent (LP)                        │
+│                                        │                                   │
+│  3. Crypto Agent ◄──quote response──┘                                      │
+│                                                                            │
+│  4. Fiat Agent ──accept quote──► Crypto Agent                              │
+│                                        │                                   │
+│  5. Crypto Agent ──lock + commitment──► Escrow Contract                    │
+│                                        │                                   │
+│     ════════════════════════════════════════════════════                   │
+│     │  CRYPTO LOCKED  │  LP RECEIVER COMMITTED ON-CHAIN  │                 │
+│     ════════════════════════════════════════════════════                   │
+│                                                                            │
+│  6. Buyer ──pays fiat──► Bank/PSP                                          │
+│                              │                                             │
+│  7. Bank/PSP ──webhook──► Watcher Agent                                    │
+│                              │                                             │
+│  8. Watcher ──validate HMAC, correlate order──► (internal)                 │
+│                              │                                             │
+│  9. Watcher ──observation──► Attestation Agent                             │
+│                                   │                                        │
+│ 10. Attestation ──validate amount/receiver/reference──► (internal)         │
+│                                   │                                        │
+│ 11. Attestation ──pin evidence──► 0G Storage                               │
+│                                   │                                        │
+│ 12. Attestation ──release──► Escrow Contract                               │
+│                                   │                                        │
+│ 13. Escrow ──crypto released──► Buyer Wallet                               │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 | Step | Agent | Action |
 |------|-------|--------|
 | 1-4 | Fiat + Crypto | Quote negotiation over AXL mesh |
-| 5 | Crypto Agent | Lock with `receiverCommitment` binding |
+| 5 | Crypto Agent | Lock with receiver commitment binding |
 | 6 | Buyer | External fiat payment |
 | 7-9 | Watcher Agent | Observe, validate HMAC, forward |
 | 10-12 | Attestation Agent | Validate, pin evidence, trigger release |
@@ -262,7 +277,7 @@ sequenceDiagram
 
 ---
 
-## G.14 Key Concepts
+## Key Concepts
 
 | Concept | Description |
 |---------|-------------|
@@ -303,7 +318,7 @@ When a buyer pays, the Watcher observes the payment receiver and the Attestation
 
 ## Deployed Contracts
 
-### V2 Contracts (G.14 — with receiverCommitment)
+### V2 Contracts (with receiverCommitment)
 
 | Contract | 0G Galileo | Base Sepolia |
 |----------|------------|--------------|
@@ -317,7 +332,7 @@ When a buyer pays, the Watcher observes the payment receiver and the Attestation
 
 | Description | Hash | Network |
 |-------------|------|---------|
-| G.14 lockWithCommitments | [`0xc2c6d576...`](https://chainscan-galileo.0g.ai/tx/0xc2c6d576d501cd392bcb060f1336468032abca8c4bd13991455311964f5a0c2d) | 0G Galileo |
+| lockWithCommitments | [`0xc2c6d576...`](https://chainscan-galileo.0g.ai/tx/0xc2c6d576d501cd392bcb060f1336468032abca8c4bd13991455311964f5a0c2d) | 0G Galileo |
 | Evidence pin (0G Storage) | [`0x294f1c7c...`](https://chainscan-galileo.0g.ai/tx/0x294f1c7cd769a410b5a81ab024d5aa33987cce33ca0fd88bc2ad9055173e8675) | 0G Galileo |
 | Escrow release | [`0x8178fde9...`](https://chainscan-galileo.0g.ai/tx/0x8178fde9db6e87206b28ec49516be22bf53c33fcda7cf454d2ac3dfede1a5801) | 0G Galileo |
 
