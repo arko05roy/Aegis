@@ -84,6 +84,83 @@ export const DisputeOpenSchema = z.object({
 });
 export type DisputeOpen = z.infer<typeof DisputeOpenSchema>;
 
+// ============================================
+// Appendix G: Watcher + Attestation Schemas
+// ============================================
+
+// Payment Observation (WatcherAgent → AttestationAgent)
+export const PaymentObservationSchema = z.object({
+  observationId: z.string(),
+  orderId: z.string(),
+  amount: z.string(),
+  currency: z.string(),
+  sender: z.string(),
+  receiver: z.string(),
+  transactionId: z.string(),
+  timestamp: z.number(),
+  rail: z.string(),
+  rawPayload: z.string(),
+  signatureHeader: z.string(),
+  signatureValid: z.boolean(),
+  observedAt: z.number(),
+  matchConfidence: z.number(),
+  state: z.enum(['candidate', 'forwarded', 'verified', 'rejected']),
+});
+export type PaymentObservation = z.infer<typeof PaymentObservationSchema>;
+
+// Order Commitment (for attestation validation)
+export const OrderCommitmentSchema = z.object({
+  orderId: z.string(),
+  expectedAmount: z.string(),
+  expectedCurrency: z.string(),
+  receiverCommitment: z.string(),
+  referenceHash: z.string().optional(),
+  deadline: z.number(),
+  attestationMode: z.string(),
+});
+export type OrderCommitment = z.infer<typeof OrderCommitmentSchema>;
+
+// Attestation Result
+export const AttestationResultSchema = z.object({
+  attestationId: z.string(),
+  observationId: z.string(),
+  orderId: z.string(),
+  attestorPubkey: z.string(),
+  validationResult: z.object({
+    amountMatch: z.boolean(),
+    currencyMatch: z.boolean(),
+    receiverMatch: z.boolean(),
+    timestampValid: z.boolean(),
+    signatureValid: z.boolean(),
+    overallValid: z.boolean(),
+    reason: z.string().optional(),
+  }),
+  evidenceHash: z.string(),
+  storageRootHash: z.string(),
+  submittedTx: z.string().optional(),
+  createdAt: z.number(),
+});
+export type AttestationResult = z.infer<typeof AttestationResultSchema>;
+
+// LP Rail Registration (G.12.1)
+export const LpRailRegistrationSchema = z.object({
+  lpId: z.string(),
+  railType: z.enum(['banksim', 'upi', 'venmo', 'revolut', 'ach']),
+  receiverLabel: z.string(),
+  beneficiaryName: z.string(),
+  canonicalReceiverPayload: z.string(),
+  receiverCommitment: z.string(),
+  qrPayload: z.string().optional(),
+  qrCommitment: z.string().optional(),
+  region: z.string(),
+  currency: z.string(),
+  minAmount: z.string(),
+  maxAmount: z.string(),
+  reversibilityClass: z.enum(['instant', 'reversible', 'final']),
+  ownershipVerificationStatus: z.enum(['pending', 'verified', 'failed']),
+});
+export type LpRailRegistration = z.infer<typeof LpRailRegistrationSchema>;
+
 // MCP Tool Definitions
 export const MCP_TOOLS = {
   'rfq.get': {
@@ -115,5 +192,26 @@ export const MCP_TOOLS = {
     name: 'dispute.open',
     description: 'Either party opens a dispute',
     inputSchema: DisputeOpenSchema,
+  },
+  // Appendix G: Watcher + Attestation tools
+  'payment.observed': {
+    name: 'payment.observed',
+    description: 'WatcherAgent emits payment observation to attestors',
+    inputSchema: PaymentObservationSchema,
+  },
+  'order.commitment': {
+    name: 'order.commitment',
+    description: 'Register order commitment for attestation validation',
+    inputSchema: OrderCommitmentSchema,
+  },
+  'attestation.result': {
+    name: 'attestation.result',
+    description: 'AttestationAgent returns validation and release result',
+    inputSchema: AttestationResultSchema,
+  },
+  'lp.rail.register': {
+    name: 'lp.rail.register',
+    description: 'LP registers a fiat payment rail with committed receiver details',
+    inputSchema: LpRailRegistrationSchema,
   },
 } as const;
