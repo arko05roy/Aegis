@@ -2,14 +2,15 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAccount, useConnect, useDisconnect, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { parseUnits } from 'viem';
+import { parseUnits, keccak256, toBytes } from 'viem';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2, XCircle, Loader2, ArrowRight, Wallet, Zap, ExternalLink,
   ChevronDown, Banknote, Coins, ArrowDownUp, Shield, Clock, Activity,
-  Sparkles, Radio, CircleDot, TrendingUp, Star
+  Sparkles, Radio, CircleDot, TrendingUp, Star, Eye
 } from 'lucide-react';
 import Link from 'next/link';
+import { ProofTimeline } from '../../components/ui/proof-timeline';
 
 type OrderState = 'INIT' | 'CONNECTING_AGENTS' | 'BROADCASTING' | 'QUOTING' | 'SELECTING' | 'COMMITTING' | 'LOCKED' | 'PAYING' | 'RELEASED' | 'ERROR';
 
@@ -58,8 +59,9 @@ interface AgentStatus {
   decisions?: AgentDecisions;
 }
 
-const ESCROW_ADDRESS = '0x31da867c6c12ecebbb738d97198792901431e228' as const;
-const TOKEN_ADDRESS = '0x89a87b531e37731a77b1e40b6b8b5bcb58819059' as const;
+// V2 contracts with G.14 fields (deployed 2026-04-27)
+const ESCROW_ADDRESS = '0xeAD29cBfAb93ed51808D65954Dd1b3cDDaDA1348' as const;
+const TOKEN_ADDRESS = '0x5F2577675beD125794FDfc44940b62D60BF00F81' as const;
 
 const ESCROW_ABI = [
   {
@@ -75,6 +77,26 @@ const ESCROW_ABI = [
       { name: 'railType', type: 'string' },
       { name: 'deadlineSeconds', type: 'uint256' },
       { name: 'orderRefId', type: 'string' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    name: 'lockWithCommitments',
+    type: 'function',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'buyer', type: 'address' },
+      { name: 'token', type: 'address' },
+      { name: 'tokenAmount', type: 'uint256' },
+      { name: 'fiatAmount', type: 'uint256' },
+      { name: 'fiatCurrency', type: 'string' },
+      { name: 'railType', type: 'string' },
+      { name: 'deadlineSeconds', type: 'uint256' },
+      { name: 'orderRefId', type: 'string' },
+      { name: 'receiverCommitment', type: 'bytes32' },
+      { name: 'referenceHash', type: 'bytes32' },
+      { name: 'challengeWindow', type: 'uint256' },
+      { name: 'attestationMode', type: 'string' },
     ],
     outputs: [{ type: 'uint256' }],
   },
@@ -590,55 +612,81 @@ function AgentCards({ agentStatus }: { agentStatus: AgentStatus | null }) {
   if (!agentStatus) return null;
 
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       {/* Fiat Agent */}
-      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500/20 to-yellow-500/20 flex items-center justify-center">
-            <Banknote className="w-5 h-5 text-orange-400" />
+      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500/20 to-yellow-500/20 flex items-center justify-center">
+            <Banknote className="w-4 h-4 text-orange-400" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-white">Fiat Agent</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-white">Fiat</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
-            <p className="text-xs text-zinc-500">Rail & payments</p>
+            <p className="text-[10px] text-zinc-500">Rails</p>
           </div>
         </div>
-        <code className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-1 rounded font-mono block truncate">
-          {agentStatus.fiatPubkey?.slice(0, 20)}...
+        <code className="text-[9px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded font-mono block truncate">
+          {agentStatus.fiatPubkey?.slice(0, 14)}...
         </code>
-        {agentStatus.decisions?.fiat?.attestation?.verified && (
-          <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-400">
-            <Shield className="w-3 h-3" />
-            TEE Attested
-          </div>
-        )}
       </div>
 
       {/* Crypto Agent */}
-      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-4">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center">
-            <Coins className="w-5 h-5 text-cyan-400" />
+      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center">
+            <Coins className="w-4 h-4 text-cyan-400" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-white">Crypto Agent</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-white">Crypto</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
-            <p className="text-xs text-zinc-500">Signer & inventory</p>
+            <p className="text-[10px] text-zinc-500">Signer</p>
           </div>
         </div>
-        <code className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-1 rounded font-mono block truncate">
-          {agentStatus.cryptoPubkey?.slice(0, 20)}...
+        <code className="text-[9px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded font-mono block truncate">
+          {agentStatus.cryptoPubkey?.slice(0, 14)}...
         </code>
-        {agentStatus.decisions?.crypto?.attestation?.verified && (
-          <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-400">
-            <Shield className="w-3 h-3" />
-            TEE Attested
+      </div>
+
+      {/* Watcher Agent (G.14) */}
+      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-purple-800/30 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
+            <Eye className="w-4 h-4 text-purple-400" />
           </div>
-        )}
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-white">Watcher</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+            </div>
+            <p className="text-[10px] text-zinc-500">Observe</p>
+          </div>
+        </div>
+        <code className="text-[9px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded font-mono block truncate">
+          {agentStatus.fiatPubkey ? `w:${agentStatus.fiatPubkey.slice(2, 16)}...` : 'loading...'}
+        </code>
+      </div>
+
+      {/* Attestation Agent (G.14) */}
+      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-indigo-800/30 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500/20 to-violet-500/20 flex items-center justify-center">
+            <Shield className="w-4 h-4 text-indigo-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-white">Attestor</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+            </div>
+            <p className="text-[10px] text-zinc-500">Prove</p>
+          </div>
+        </div>
+        <code className="text-[9px] text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded font-mono block truncate">
+          {agentStatus.cryptoPubkey ? `a:${agentStatus.cryptoPubkey.slice(2, 16)}...` : 'loading...'}
+        </code>
       </div>
     </div>
   );
@@ -717,15 +765,35 @@ export default function P2PPage() {
 
   useEffect(() => {
     if (approveSuccess && appState.state === 'COMMITTING' && address && appState.selectedQuote) {
-      addLog('send', 'escrow.lock');
+      addLog('send', 'escrow.lockWithCommitments');
       const tokenAmount = parseUnits(appState.selectedQuote.outputAmount, 18);
       const lpBond = tokenAmount / 100n;
+
+      // G.14: Generate receiver commitment and reference hash
+      const receiverLabel = `lp@${intent.rail}`;
+      const receiverCommitment = keccak256(toBytes(receiverLabel));
+      const referenceHash = keccak256(toBytes(`REF-${orderRefId}`));
+      const challengeWindow = intent.rail === 'banksim' ? 0n : 60n; // No challenge for instant rails
+      const attestationMode = intent.rail;
 
       lock({
         address: ESCROW_ADDRESS,
         abi: ESCROW_ABI,
-        functionName: 'lock',
-        args: [address, TOKEN_ADDRESS, tokenAmount, BigInt(intent.amount), intent.fromCcy, intent.rail, 600n, orderRefId],
+        functionName: 'lockWithCommitments',
+        args: [
+          address,
+          TOKEN_ADDRESS,
+          tokenAmount,
+          BigInt(intent.amount),
+          intent.fromCcy,
+          intent.rail,
+          600n,
+          orderRefId,
+          receiverCommitment,
+          referenceHash,
+          challengeWindow,
+          attestationMode,
+        ],
         value: lpBond,
       });
     }
@@ -739,10 +807,47 @@ export default function P2PPage() {
         body: JSON.stringify({ orderId: orderRefId, amount: intent.amount, currency: intent.fromCcy }),
       });
 
+      // Update proof timeline
+      fetch(`/api/orders/${orderRefId}/proof`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase: 'LOCKED', txHash: lockTxHash }),
+      });
+
       addLog('recv', 'OrderLocked');
       setAppState(prev => ({ ...prev, state: 'LOCKED', lockTx: lockTxHash }));
     }
   }, [lockSuccess, lockTxHash, appState.state, orderRefId, intent, addLog]);
+
+  // Sync proof timeline with app state changes
+  useEffect(() => {
+    if (!orderRefId) return;
+
+    const phaseMap: Record<OrderState, string | null> = {
+      'INIT': null,
+      'CONNECTING_AGENTS': null,
+      'BROADCASTING': null,
+      'QUOTING': null,
+      'SELECTING': null,
+      'COMMITTING': 'AWAITING_LOCK',
+      'LOCKED': 'AWAITING_PAYMENT',
+      'PAYING': 'PAYMENT_OBSERVED',
+      'RELEASED': 'RELEASED',
+      'ERROR': null,
+    };
+
+    const phase = phaseMap[appState.state];
+    if (phase) {
+      fetch(`/api/orders/${orderRefId}/proof`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phase,
+          txHash: appState.state === 'RELEASED' ? appState.releaseTx : undefined,
+        }),
+      });
+    }
+  }, [appState.state, orderRefId, appState.releaseTx]);
 
   useEffect(() => {
     if (approveError) {
@@ -876,6 +981,17 @@ export default function P2PPage() {
         addLog('recv', 'webhook.verified');
         addLog('recv', '0g.storage.pinned');
         addLog('recv', 'escrow.released');
+
+        // Update proof timeline with evidence
+        fetch(`/api/orders/${orderRefId}/proof`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            evidenceHash: result.evidenceHash,
+            storageRootHash: result.evidenceHash,
+          }),
+        });
+
         setAppState(prev => ({
           ...prev,
           state: 'RELEASED',
@@ -910,7 +1026,12 @@ export default function P2PPage() {
             <div className="h-4 w-px bg-zinc-700" />
             <span className="text-sm text-zinc-500">P2P Swap</span>
           </div>
-          <ConnectWallet />
+          <div className="flex items-center gap-4">
+            <Link href="/lp/dashboard" className="text-sm text-zinc-400 hover:text-white transition-colors">
+              LP Portal
+            </Link>
+            <ConnectWallet />
+          </div>
         </div>
       </header>
 
@@ -1082,6 +1203,17 @@ export default function P2PPage() {
                 releaseTx={appState.releaseTx}
                 evidenceHash={appState.evidenceRootHash}
               />
+
+              {/* G.14: Settlement Proof Timeline */}
+              {orderRefId && ['LOCKED', 'PAYING', 'RELEASED'].includes(appState.state) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <ProofTimeline orderId={orderRefId} />
+                </motion.div>
+              )}
             </div>
           </div>
         </main>
