@@ -45,21 +45,46 @@ MoonPay        →  5% fees, centralized verification, your data sold
 
 ## Architecture
 
+### G.14 Trust-Minimized Fiat Edge
+
+Aegis uses a **4-agent model** where no single agent has unilateral release power:
+
 ```mermaid
 flowchart TB
-    subgraph Wallet["USER WALLET"]
-        FA[Fiat Agent]
-        CA[Crypto Agent]
-        FA <-->|AXL P2P Mesh| CA
-        FA & CA -->|broadcast/receive quotes| Escrow[Escrow Contract]
+    subgraph Buyer["BUYER SIDE"]
+        FA[Fiat Agent<br/>Rails & Intent]
     end
     
-    Escrow -->|settlement| Storage["0G Storage<br/>(decision logs)"]
-    Escrow -->|verification| Compute["0G Compute<br/>(TEE attestation)"]
-    Escrow -->|automation| Keeper["KeeperHub<br/>(escrow automation)"]
+    subgraph LP["LP SIDE"]
+        CA[Crypto Agent<br/>Quotes & Signing]
+    end
+    
+    subgraph Settlement["SETTLEMENT LAYER"]
+        WA[Watcher Agent<br/>Observe Payments]
+        AA[Attestation Agent<br/>Generate Proofs]
+    end
+    
+    FA <-->|AXL Mesh| CA
+    CA -->|lock with receiverCommitment| Escrow[Escrow Contract]
+    
+    PSP[Bank/PSP Webhook] -->|payment event| WA
+    WA -->|observation| AA
+    AA -->|pin evidence| Storage["0G Storage"]
+    AA -->|release(evidenceHash)| Escrow
+    
+    Escrow -->|crypto released| Buyer
 ```
 
-Agents handle negotiation only. Funds remain in escrow contracts until zkTLS proof verification triggers release.
+**Key Safety Rule:** *Watchers observe, Attestors prove, Escrow decides.*
+
+| Agent | Role | Trust Property |
+|-------|------|----------------|
+| Fiat Agent | Broadcasts buyer intent, selects quotes | No custody |
+| Crypto Agent | Provides liquidity, signs locks | Locks funds in escrow, not agent |
+| Watcher Agent | Observes payment webhooks, validates HMAC | Cannot release — only forwards |
+| Attestation Agent | Validates observations, pins proofs | Cannot release without valid evidence |
+
+The crypto release path is **deterministic** — escrow releases only when evidence matches pre-committed `receiverCommitment` and order constraints.
 
 ---
 
@@ -68,12 +93,14 @@ Agents handle negotiation only. Funds remain in escrow contracts until zkTLS pro
 | Component | Technology | Function |
 |-----------|------------|----------|
 | P2P Messaging | Gensyn AXL | Encrypted agent communication over mesh network |
-| State Persistence | 0G Storage | On-chain storage for agent decisions and LP rankings |
+| State Persistence | 0G Storage | On-chain storage for agent decisions, proofs, and LP rankings |
 | Code Attestation | 0G Compute | TEE verification of agent binary integrity |
-| Payment Proof | Reclaim zkTLS | Cryptographic proof extraction from bank TLS sessions |
-| Escrow Automation | KeeperHub | Conditional release triggers on proof verification |
-| Settlement | 0G Galileo + Base | Smart contract escrow and reputation tracking |
+| Payment Observation | Watcher Agent | HMAC-verified webhook processing, event correlation |
+| Proof Generation | Attestation Agent | Evidence validation, 0G pinning, escrow release |
+| Escrow Automation | KeeperHub | Deadline enforcement, conditional triggers |
+| Settlement | 0G Galileo + Base | Smart contract escrow with `receiverCommitment` binding |
 | Agent Payments | x402 | HTTP-native micropayments for agent-to-agent fees |
+| LP Registration | Rail Registry | Payment rail commitment hashes, ownership verification |
 
 ---
 
@@ -195,15 +222,68 @@ The crypto moves to the buyer's wallet — no human approval needed.
 
 ---
 
-## Transaction Flow
+## Transaction Flow (G.14)
 
-1. **Quote Request**: User agent broadcasts swap request over AXL mesh
-2. **LP Response**: LP agents return quotes (amount, fee, reputation score)
-3. **Escrow Lock**: Selected LP's crypto locked in escrow contract
-4. **Fiat Transfer**: User sends fiat via supported payment rail
-5. **Proof Generation**: zkTLS proof extracted from payment provider's TLS session
-6. **Verification**: KeeperHub validates proof against escrow conditions
-7. **Release**: Escrow releases crypto to user wallet
+```mermaid
+sequenceDiagram
+    participant Buyer
+    participant FA as Fiat Agent
+    participant CA as Crypto Agent (LP)
+    participant Escrow
+    participant WA as Watcher Agent
+    participant AA as Attestation Agent
+    participant 0G as 0G Storage
+
+    Buyer->>FA: 1. "Swap 100 USD → ETH"
+    FA->>CA: 2. RFQ broadcast (AXL mesh)
+    CA-->>FA: 3. Quote (rate, fee, receiverCommitment)
+    FA->>CA: 4. Accept quote
+    CA->>Escrow: 5. lockWithCommitments(receiverCommitment, referenceHash)
+    Note over Escrow: Crypto locked + LP payment details committed
+    
+    Buyer->>PSP: 6. Pay via bank/UPI/Venmo
+    PSP->>WA: 7. Webhook (HMAC signed)
+    WA->>WA: 8. Validate HMAC, correlate to order
+    WA->>AA: 9. Forward observation
+    AA->>AA: 10. Validate: amount, receiver, reference
+    AA->>0G: 11. Pin evidence blob
+    AA->>Escrow: 12. release(orderIdHash, evidenceHash)
+    Escrow->>Buyer: 13. Crypto released
+```
+
+| Step | Agent | Action |
+|------|-------|--------|
+| 1-4 | Fiat + Crypto | Quote negotiation over AXL mesh |
+| 5 | Crypto Agent | Lock with `receiverCommitment` binding |
+| 6 | Buyer | External fiat payment |
+| 7-9 | Watcher Agent | Observe, validate HMAC, forward |
+| 10-12 | Attestation Agent | Validate, pin evidence, trigger release |
+| 13 | Escrow Contract | Deterministic release to buyer |
+
+---
+
+## G.14 Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| `receiverCommitment` | `keccak256(lpPaymentReceiver)` — bound at lock time, prevents bait-and-switch |
+| `referenceHash` | Payment reference hash for unambiguous order matching |
+| `challengeWindow` | Per-rail delay before final release (0 for instant rails like BankSim/UPI) |
+| `attestationMode` | Proof type: `banksim`, `webhook`, `zktls`, `multi-attestor` |
+| `evidenceHash` | 0G Storage Merkle root of pinned payment proof |
+
+### LP Rail Registration
+
+LPs register payment rails (UPI VPA, Venmo handle, bank account) with commitment hashes:
+
+```
+LP registers: upi:alice@okicici
+  → canonicalPayload = "upi:alice@okicici"
+  → receiverCommitment = keccak256(canonicalPayload)
+  → stored on-chain in RailRegistry
+```
+
+When a buyer pays, the Watcher observes the payment receiver and the Attestation Agent verifies it matches the committed hash — preventing LP from showing fake payment details.
 
 ---
 
@@ -214,24 +294,32 @@ The crypto moves to the buyer's wallet — no human approval needed.
 | Agent tampering | 0G Compute TEE attests code hash before each session |
 | Decision disputes | All agent decisions logged to 0G Storage with cryptographic proofs |
 | Fund custody | Agents hold signing keys for broadcast only; escrow withdrawal requires valid proof or timeout |
-| Fiat verification | zkTLS extracts proof directly from bank's TLS session, not user-provided data |
+| Fiat verification | Watcher validates HMAC, Attestor validates constraints, evidence pinned to 0G |
+| LP bait-and-switch | `receiverCommitment` bound at lock time — cannot change payment target mid-order |
+| Watcher collusion | Watcher cannot release — can only forward observations to Attestor |
+| Attestor collusion | Attestor cannot release without evidence matching committed constraints |
 
 ---
 
 ## Deployed Contracts
 
+### V2 Contracts (G.14 — with receiverCommitment)
+
 | Contract | 0G Galileo | Base Sepolia |
 |----------|------------|--------------|
-| Escrow | `0x31da867c...` | `0x42A50591...` |
-| AgentRegistry | `0x98efa762...` | `0xf03F328b...` |
+| Escrow | `0xeAD29cBf...` | `0x42A50591...` |
+| RailRegistry | `0x0a22b6e2...` | `0x8E55f999...` |
+| AgentRegistry | `0x2E124DEa...` | `0xf03F328b...` |
+| BankSimVerifier | `0x9401FCe4...` | `0x8AD91327...` |
+| TestERC20 | `0x5F257767...` | `0xDDDfdd3D...` |
 
 **Verified Transactions:**
 
 | Description | Hash | Network |
 |-------------|------|---------|
-| Agent state write | [`0x26734875...`](https://chainscan-galileo.0g.ai/tx/0x267348752296ea6ac570cb13e1612b7aaef6d0c09cded81ee6d791def4bcf8bd) | 0G Galileo |
-| Escrow release | [`0x335f7fa8...`](https://sepolia.basescan.org/tx/0x335f7fa891ca6171f506de68ebdf26f2bcafd5a79d967352de390ee7fea79c34) | Base Sepolia |
-| Evidence root | `0x9eafd758...` | 0G Galileo |
+| G.14 lockWithCommitments | [`0xc2c6d576...`](https://chainscan-galileo.0g.ai/tx/0xc2c6d576d501cd392bcb060f1336468032abca8c4bd13991455311964f5a0c2d) | 0G Galileo |
+| Evidence pin (0G Storage) | [`0x294f1c7c...`](https://chainscan-galileo.0g.ai/tx/0x294f1c7cd769a410b5a81ab024d5aa33987cce33ca0fd88bc2ad9055173e8675) | 0G Galileo |
+| Escrow release | [`0x8178fde9...`](https://chainscan-galileo.0g.ai/tx/0x8178fde9db6e87206b28ec49516be22bf53c33fcda7cf454d2ac3dfede1a5801) | 0G Galileo |
 
 ---
 

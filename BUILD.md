@@ -3733,3 +3733,1341 @@ The following resources provide documentation for KeeperHub blockchain automatio
 | KeeperHub GitHub | https://github.com/techops-services/keeperhub | SDK, examples, and workflow templates |
 
 > **Note**: AI agents should fetch these resources before implementing Sections 6 (KeeperHub Automation) and 7 (Payment Verification).
+
+---
+
+## Appendix G: Trust-Minimized Fiat Edge Architecture (QR + Webhook + zkTLS + Multi-Agent Release)
+
+### G.1 Why This Appendix Exists
+
+The original architecture in this document already proves that a buyer can lock crypto, trigger a fiat-side verification flow, and release escrow automatically. However, one conceptual gap remains and must be addressed explicitly before moving the system toward production:
+
+- AI agents can directly hold crypto keys and sign onchain transactions.
+- AI agents cannot directly hold fiat in the same bearer-like sense.
+- Fiat always lives inside the ledger of a regulated bank, PSP, EMI, card processor, wallet provider, or similar institution.
+- Therefore, any "decentralized fiat onramp" is not literally decentralized end-to-end in the same way as a pure crypto protocol.
+
+This does **not** invalidate the product. Instead, it changes the correct architectural framing:
+
+- The product is **not** "fully trustless fiat."
+- The product **is** a **trust-minimized, proof-driven settlement network** that coordinates between centralized fiat rails and decentralized crypto rails.
+- The decentralized part is the coordination, discovery, escrow, slashing, reputation, proof submission, and release logic.
+- The centralized part is the fiat payment rail itself.
+
+This appendix formalizes the user's proposed product idea:
+
+1. A liquidity provider (LP) registers on the platform.
+2. The LP provides bank account details, PSP receiver details, and QR codes for receiving fiat.
+3. A buyer wants to swap fiat to crypto.
+4. The application shows the buyer the LP's payment QR or bank instructions.
+5. The buyer pays the LP through a fiat rail such as UPI, bank transfer, Venmo, Revolut, ACH, etc.
+6. A watcher process detects the payment event by webhook, polling, signed API response, or equivalent evidence source.
+7. A second agent verifies the event, performs zkTLS or equivalent proof work, and submits release evidence.
+8. Crypto is released from escrow automatically when the proof satisfies deterministic rules.
+
+This architecture is the correct product direction. It must be implemented with a precise understanding of what is and is not trustless.
+
+### G.2 Terminology Clarification
+
+To avoid architectural confusion during implementation, use the following terms consistently:
+
+- **Crypto custody**: direct bearer control via private keys, smart accounts, or MPC.
+- **Fiat custody**: legal/economic control of balances held by banks or PSPs.
+- **Fiat control**: scoped ability to initiate or observe fiat payments through linked accounts, mandates, APIs, webhooks, or credentials.
+- **Trustless**: no single human, business, or operator can unilaterally steal or misdirect funds if the protocol rules are followed.
+- **Trust-minimized**: the system still relies on external institutions or attestors, but minimizes discretionary trust through proof, slashing, code immutability, and deterministic release rules.
+- **Attestation**: a signed statement that a payment event matching specified criteria occurred.
+- **Proof-driven release**: escrow release that is triggered only by evidence matching pre-committed order constraints.
+
+For the rest of this build guide:
+
+- The user-side "fiat agent" should be understood as a **Fiat Control Agent** or **Rail Agent**, not a literal bearer wallet for fiat.
+- The entity that "watches" payment events should be separated from the entity that "proves" them.
+- The final authority for releasing crypto should be the **Escrow contract**, not a discretionary bot.
+
+### G.3 Design Goal
+
+The goal of this architecture is to remove the human LP from the critical release decision while acknowledging that the fiat rail itself remains external and centralized.
+
+The system should guarantee, as far as technically possible:
+
+- The LP cannot manually decide to withhold crypto after valid payment proof exists.
+- The buyer cannot claim payment without presenting valid evidence.
+- The application cannot silently rewrite receiver details after quote commitment.
+- The payment watcher cannot unilaterally release funds.
+- The proof-generation layer cannot substitute a different order, amount, or receiver.
+- The final release rule is deterministic, inspectable, and enforced by escrow logic.
+
+The system should **not** claim:
+
+- that fiat is decentralized,
+- that bank or PSP data is infallible,
+- that webhook truth is equivalent to blockchain finality,
+- or that a single agent process is enough to make the full system trustless.
+
+### G.4 Core Insight
+
+The buyer's key user experience insight is valid:
+
+> Instead of asking the LP to manually confirm fiat receipt and manually release crypto, show the buyer a registered QR / account target, watch for fiat payment evidence, prove that evidence, and have escrow release automatically.
+
+This is the most important upgrade from "manual P2P marketplace" to "agentic trust-minimized settlement network."
+
+The practical implementation consequence is:
+
+- humans choose intent,
+- LPs provide liquidity and receive fiat,
+- agents coordinate discovery, monitoring, proving, and relaying,
+- smart contracts enforce release.
+
+### G.5 Trust Model Summary
+
+This flow is **not fully trustless end-to-end** because the fiat rail is external, but it **can be trustless on the crypto release path** if built correctly.
+
+The trust model should be documented as follows:
+
+#### What Can Be Made Trustless or Near-Trustless
+
+- crypto escrow custody,
+- release conditions,
+- quote commitment hashes,
+- LP collateral / bond slashing,
+- order-state transitions,
+- receiver-detail commitment hashes,
+- evidence-hash anchoring,
+- code-hash pinning for critical attestation agents,
+- quorum rules for attestors if used.
+
+#### What Remains External / Trust-Minimized
+
+- the bank or PSP's ledger truth,
+- reversibility and settlement finality of fiat rails,
+- webhook authenticity and availability,
+- API uptime of the payment rail,
+- legal identity behind the fiat account,
+- the assumption that a QR code actually routes to the registered beneficiary,
+- the timing semantics of "payment completed" versus "payment later reversed."
+
+#### Approved Product Language
+
+When describing the system in product copy, architecture docs, or investor decks, prefer:
+
+- "trust-minimized fiat-to-crypto settlement"
+- "proof-driven release"
+- "non-custodial crypto escrow with fiat attestation"
+- "decentralized coordination around centralized fiat rails"
+
+Avoid:
+
+- "fully trustless fiat"
+- "fiat stored in AI wallets"
+- "fully decentralized bank settlement"
+
+### G.6 High-Level Actor Model
+
+The revised product should expose or internally operate the following actors:
+
+#### 1. Buyer
+
+The buyer wants to convert fiat to crypto or crypto to fiat.
+
+Responsibilities:
+
+- submits swap intent,
+- approves payment actions,
+- completes the off-platform fiat transfer when required,
+- can inspect proof and order status,
+- can dispute if evidence is incorrect.
+
+#### 2. Liquidity Provider (LP)
+
+The LP supplies crypto inventory and receives fiat, or supplies fiat liquidity and receives crypto on the reverse path.
+
+Responsibilities:
+
+- registers supported rails,
+- registers payout / receiver details,
+- locks crypto inventory or bond,
+- accepts risk and pricing parameters,
+- is slashable for protocol-level fault conditions.
+
+#### 3. Rail Agent (Buyer-side or LP-side depending on flow)
+
+The Rail Agent is the correct evolved form of the current "fiat agent."
+
+Responsibilities:
+
+- handles linked payment rails,
+- requests or receives payment details,
+- presents QR / receiver instructions to the user,
+- optionally initiates payments through APIs where allowed,
+- tracks payment state,
+- never unilaterally releases escrow.
+
+#### 4. Payment Watcher Agent
+
+This is a new dedicated agent that monitors fiat rails.
+
+Responsibilities:
+
+- subscribes to provider webhooks,
+- polls PSP / bank APIs,
+- verifies signature headers,
+- correlates raw payment events to a specific order,
+- emits candidate payment observations,
+- does not decide final release.
+
+#### 5. Attestation / Proof Agent
+
+This is a separate new agent and should not be merged conceptually with the generic watcher.
+
+Responsibilities:
+
+- validates raw watcher output,
+- obtains or reconstructs stronger evidence,
+- runs zkTLS or equivalent proof workflow where available,
+- produces an attestation or proof payload,
+- submits release evidence to the escrow system,
+- has no discretionary power beyond evidence generation and relay.
+
+#### 6. Escrow Contract
+
+This remains the final release authority.
+
+Responsibilities:
+
+- stores order parameters,
+- stores receiver commitments,
+- stores deadlines and dispute windows,
+- verifies proof / attestation acceptance conditions,
+- releases crypto if and only if deterministic conditions are satisfied,
+- exposes auditable state transitions.
+
+#### 7. Risk / Dispute Agent
+
+A dedicated exception-handling agent should be added.
+
+Responsibilities:
+
+- flags ambiguous or conflicting payment events,
+- escalates on potential reversals,
+- opens dispute windows,
+- recommends slashing or quarantine actions,
+- routes complex cases to human review if required.
+
+#### 8. Treasury / Inventory Agent
+
+This agent is required if the platform is to function at scale rather than as a thin messaging demo.
+
+Responsibilities:
+
+- tracks LP balances by rail and chain,
+- monitors depleted inventory,
+- handles rebalancing suggestions,
+- estimates liquidity availability,
+- prevents quotes from LPs that cannot actually settle.
+
+### G.7 Revised User-Facing Fiat-to-Crypto Flow
+
+The following is the canonical buyer-side flow after this appendix is implemented.
+
+#### Step 1: LP Registration
+
+Before any buyer can pay an LP, the LP must register:
+
+- legal/business identity metadata as required by the product,
+- supported fiat rails,
+- receiving bank account details,
+- QR payloads where applicable,
+- payment reference format rules,
+- payout address for crypto delivery on supported chains,
+- service regions, limits, hours, fees, and risk profile.
+
+At registration time, the system should:
+
+- hash and store receiver-detail commitments,
+- associate each rail with a unique rail ID,
+- require a stake or bond,
+- optionally require test payment verification,
+- persist proofs of ownership of the payout account / receiver detail.
+
+The QR shown to users must not be arbitrary runtime input. It should be derived from or matched against a registered commitment.
+
+#### Step 2: Buyer Creates Intent
+
+Buyer enters:
+
+- amount,
+- source fiat currency,
+- destination crypto asset,
+- destination chain,
+- optional preferred rail,
+- optional urgency or price constraints.
+
+The system then:
+
+- broadcasts RFQ,
+- receives signed quotes,
+- checks available LP inventory,
+- checks rail availability,
+- chooses one LP and one route.
+
+#### Step 3: Quote Lock and Escrow Lock
+
+Once the buyer accepts a quote:
+
+- LP locks crypto in escrow,
+- buyer optionally posts an anti-grief bond,
+- order parameters are committed onchain,
+- receiver-detail commitment is bound to the order,
+- deadlines begin.
+
+At this point the platform has enough information to safely show payment instructions.
+
+#### Step 4: Buyer Is Shown Registered Fiat Payment Instructions
+
+This is the product moment central to the user's idea.
+
+The buyer sees:
+
+- QR code for payment,
+- beneficiary name,
+- account / VPA / handle metadata,
+- exact amount,
+- exact order reference,
+- quote expiry,
+- expected crypto output,
+- warning that payment must be made exactly as instructed.
+
+The UI should also show:
+
+- a commitment fingerprint proving these instructions were pre-registered,
+- whether this rail supports zkTLS-grade evidence or only weaker attestation,
+- settlement expectations,
+- whether the rail is reversible or near-final.
+
+#### Step 5: Buyer Pays Off-Platform
+
+The buyer scans the QR or otherwise completes the payment through the external rail.
+
+Examples:
+
+- UPI app scan-and-pay,
+- bank transfer,
+- Venmo payment,
+- Revolut transfer,
+- ACH or open-banking payment initiation,
+- payout-link acceptance in some reverse flows.
+
+The platform itself does not control the fiat ledger. The buyer is making a real external payment.
+
+#### Step 6: Payment Watcher Detects Event
+
+The watcher observes one or more of the following:
+
+- PSP webhook,
+- bank webhook,
+- signed API response,
+- polling result from account transaction feed,
+- internal receipt generated by the provider,
+- payment reference arrival,
+- rail-specific callback.
+
+The watcher's job is only to say:
+
+- "a candidate payment event occurred that may correspond to order X."
+
+It must not say:
+
+- "release funds immediately because I think this looks right."
+
+#### Step 7: Attestation / Proof Agent Validates Event
+
+The proof agent takes the candidate event and validates:
+
+- receiver matches LP-registered receiver commitment,
+- amount matches quote or permitted tolerance,
+- currency matches,
+- order reference matches,
+- timestamp lies inside acceptable settlement window,
+- payment status is acceptable for release,
+- provider signature / TLS session / response integrity checks pass,
+- no duplicate release exists,
+- no stronger conflicting event exists.
+
+If the rail supports zkTLS or similar proofing:
+
+- the proof agent generates the proof,
+- packages the necessary public inputs,
+- produces an evidence hash.
+
+If zkTLS is not available but a signed provider response is:
+
+- the proof agent produces a signed attestation packet,
+- marks the trust level appropriately,
+- optionally routes it through multi-attestor quorum before submission.
+
+#### Step 8: Escrow Releases Crypto Deterministically
+
+The escrow contract receives:
+
+- order identifier,
+- evidence hash,
+- proof / attestation metadata,
+- attestor identity or verifier route,
+- any required signatures or proof blobs.
+
+Escrow verifies:
+
+- order is still releasable,
+- proof path is authorized,
+- receiver / amount / reference / time constraints are satisfied,
+- release has not already occurred,
+- dispute or challenge window conditions are respected.
+
+If all checks pass:
+
+- state transitions from `LOCKED` (or `PAID`) to `RELEASED`,
+- crypto is delivered,
+- event logs anchor the release.
+
+### G.8 Reverse Flow: Crypto-to-Fiat
+
+The same architecture must support the reverse direction with role inversion.
+
+Flow:
+
+1. User wants to sell crypto for fiat.
+2. User locks crypto in escrow.
+3. LP agrees to send fiat through a registered rail.
+4. LP or LP-side rail process sends fiat to the user's registered receiver details.
+5. Payment watcher observes the outgoing / incoming payout confirmation.
+6. Attestation / proof agent verifies it.
+7. Escrow releases crypto to the LP.
+
+The important insight is that the "who pays fiat" side changes, but the architecture remains the same:
+
+- one side performs offchain fiat payment,
+- watcher detects,
+- proof agent attests,
+- escrow releases onchain.
+
+### G.9 Why This Is Better Than Manual P2P
+
+This design is superior to classic human-mediated P2P because:
+
+- the LP does not manually decide whether to release,
+- the buyer does not rely on chat screenshots,
+- the platform can pre-commit receiver details,
+- the proof path is standardized,
+- the release path is deterministic,
+- slashing and disputes become programmable,
+- users can inspect each step in a structured, auditable way.
+
+In other words, this appendix converts "trust me, I received your bank transfer" into "the protocol accepted a cryptographically or operationally verified payment event that matched a pre-committed order."
+
+### G.10 Why This Is Still Not Fully Trustless
+
+The temptation is to say:
+
+> The agent is decentralized, the code can be audited, the agent has no greed, therefore the system is completely trustless.
+
+That statement is too strong and should not be used in technical design.
+
+The correct interpretation is:
+
+- audited code reduces hidden discretionary behavior,
+- deterministic release conditions reduce human corruption,
+- decentralized attestors reduce single-operator trust,
+- escrow enforcement removes the LP from the final release decision,
+- but the fiat event itself still originates from a centralized institution.
+
+Therefore:
+
+- the agent can be trust-minimized,
+- the release path can be non-custodial and deterministic,
+- the operator can be prevented from arbitrary release,
+- but the input evidence remains anchored to a centralized real-world payment system.
+
+### G.11 The "Agent Has No Greed" Principle, Restated Safely
+
+The useful version of this idea is not that the agent is morally superior to a human.
+
+The useful version is:
+
+- the agent must have **no unilateral authority**,
+- the agent must operate under **fixed verifiable code**,
+- the agent must act only as an **evidence processor / relayer**,
+- the release rule must be enforced by **contracts**,
+- and the system must remain correct even if one watcher or attestor is malicious.
+
+That is the engineering interpretation that should guide implementation.
+
+### G.12 Components To Add To The Existing Build
+
+The current application should be expanded with the following concrete modules.
+
+#### G.12.1 LP Rail Registration Module
+
+Purpose:
+
+- allow LPs to register fiat receiving details in a structured way.
+
+Required data:
+
+- rail type (`upi`, `venmo`, `revolut`, `ach`, etc.),
+- receiver label,
+- beneficiary name,
+- account identifiers,
+- QR payload or QR image source,
+- country / region support,
+- min and max amount,
+- expected settlement speed,
+- reversibility level,
+- ownership verification status,
+- cryptographic commitment hash.
+
+Implementation notes:
+
+- add persistent schema for rail registrations,
+- add validation rules per rail type,
+- hash canonicalized receiver details before storage,
+- store both cleartext and commitment if app permissions allow,
+- show a stable fingerprint in the UI.
+
+#### G.12.2 QR Commitment and Verification Module
+
+Purpose:
+
+- prevent bait-and-switch on payment instructions.
+
+Required behavior:
+
+- canonicalize QR payload,
+- hash payload,
+- associate hash with LP account and rail ID,
+- bind selected receiver hash into the order,
+- expose `receiverCommitment` in order state.
+
+Implementation notes:
+
+- if QR is image-based, prefer storing the underlying payment string in addition to the image,
+- never rely only on pixels,
+- for UPI-style rails, extract and canonicalize the full URI or payload string.
+
+#### G.12.3 Payment Watcher Service
+
+Purpose:
+
+- ingest payment events from external rails.
+
+Required capabilities:
+
+- webhook receiver,
+- polling workers,
+- provider signature verification,
+- replay protection,
+- idempotent event storage,
+- mapping from raw events to candidate orders,
+- confidence scoring.
+
+Implementation notes:
+
+- maintain a `payment_events` table,
+- store raw body, headers, verification result, normalized payload, and matched order IDs,
+- mark events as `candidate`, `verified`, `rejected`, `ambiguous`.
+
+#### G.12.4 Attestation / Proof Service
+
+Purpose:
+
+- transform watcher output into escrow-acceptable evidence.
+
+Required capabilities:
+
+- fetch supporting evidence from the rail,
+- validate consistency,
+- run zkTLS where supported,
+- produce signed attestation fallback where not,
+- calculate `evidenceHash`,
+- submit release transaction or release message.
+
+Implementation notes:
+
+- split this from the watcher as a separate service or agent,
+- keep proof-generation deterministic and replayable,
+- log all public inputs and verification results,
+- pin evidence blobs to 0G Storage.
+
+#### G.12.5 Multi-Attestor Quorum Layer
+
+Purpose:
+
+- reduce trust in a single proof operator.
+
+Recommended behavior:
+
+- allow multiple attestor agents to independently process the same candidate payment event,
+- require threshold signatures or quorum agreement for selected high-value rails,
+- use lower thresholds for low-value or low-risk orders.
+
+Implementation notes:
+
+- start with single-attestor in dev mode if needed,
+- design data structures now so quorum can be added without contract redesign,
+- expose attestor IDs and attestation counts in order metadata.
+
+#### G.12.6 Enhanced Escrow Release Conditions
+
+Purpose:
+
+- ensure the contract, not a human, is the release gate.
+
+Contract-level additions:
+
+- `receiverCommitment` per order,
+- `referenceCommitment` or reference rule,
+- `amountExpected`,
+- `amountToleranceBps`,
+- `paymentDeadline`,
+- `challengeWindow`,
+- `evidenceHash`,
+- `attestationMode`,
+- `releaseVerifierRoute`.
+
+Implementation notes:
+
+- create explicit release entrypoints for proof-backed and attestation-backed modes,
+- emit rich events,
+- make release idempotent and replay-safe.
+
+#### G.12.7 Order Proof Timeline UI
+
+Purpose:
+
+- make the trust model legible to users.
+
+The order detail page should show:
+
+- LP selected,
+- QR / receiver fingerprint,
+- escrow lock tx,
+- buyer payment initiated,
+- watcher event received,
+- attestation / zkTLS status,
+- evidence hash pinned,
+- release submitted,
+- release confirmed,
+- challenge window status.
+
+This is a product requirement, not just a polish feature. It teaches the user how the system works and why it is safer than manual P2P.
+
+#### G.12.8 Risk and Reversal Policy Engine
+
+Purpose:
+
+- deal with non-final fiat rails.
+
+Required fields per rail:
+
+- reversibility class,
+- recommended challenge window,
+- permitted release status (`pending`, `completed`, `settled`, etc.),
+- high-risk amount thresholds,
+- manual review thresholds.
+
+Implementation notes:
+
+- not all fiat rails should release instantly on first webhook,
+- some rails may require waiting for stronger status,
+- some rails may require partial risk scoring.
+
+### G.13 Data Model Additions
+
+The system should add or extend persistent entities roughly as follows.
+
+#### `lp_rail_registrations`
+
+- `id`
+- `lp_id`
+- `rail_type`
+- `receiver_label`
+- `beneficiary_name`
+- `canonical_receiver_payload`
+- `receiver_commitment`
+- `qr_payload`
+- `qr_commitment`
+- `region`
+- `currency`
+- `min_amount`
+- `max_amount`
+- `reversibility_class`
+- `ownership_verification_status`
+- `created_at`
+- `updated_at`
+
+#### `orders`
+
+Add:
+
+- `selected_rail_registration_id`
+- `receiver_commitment`
+- `reference_rule`
+- `payment_deadline`
+- `challenge_window_seconds`
+- `attestation_mode`
+- `evidence_hash`
+- `proof_status`
+- `watcher_status`
+- `risk_status`
+
+#### `payment_events`
+
+- `id`
+- `provider`
+- `rail_type`
+- `raw_headers`
+- `raw_body`
+- `signature_verification_status`
+- `normalized_sender`
+- `normalized_receiver`
+- `normalized_reference`
+- `normalized_amount`
+- `normalized_currency`
+- `provider_status`
+- `candidate_order_id`
+- `match_confidence`
+- `event_state`
+- `observed_at`
+
+#### `attestations`
+
+- `id`
+- `order_id`
+- `payment_event_id`
+- `attestor_id`
+- `attestation_mode`
+- `public_inputs`
+- `evidence_hash`
+- `storage_root_hash`
+- `signature`
+- `verification_status`
+- `submitted_onchain_tx`
+- `created_at`
+
+### G.14 Required Smart Contract Changes
+
+The current escrow implementation already supports release based on evidence. To support the full QR-registration model, extend it with:
+
+1. Order-time storage of `receiverCommitment`.
+2. Order-time storage of `referenceRule` or `referenceHash`.
+3. Optional order-time storage of allowed amount tolerance.
+4. Explicit support for distinct verifier / attestation modes.
+5. Optional challenge window before final release on reversible rails.
+6. Optional quorum attestor support.
+7. Event emission for:
+   - `ReceiverCommitted`
+   - `PaymentObserved`
+   - `EvidenceSubmitted`
+   - `ReleaseChallenged`
+   - `ReleaseFinalized`
+
+The verifier path should accept public inputs sufficient to bind:
+
+- order ID,
+- LP identity,
+- receiver commitment,
+- amount,
+- currency,
+- reference,
+- event timestamp,
+- attestation route.
+
+### G.15 Agent Runtime Changes
+
+The current runtime defines FiatAgent and CryptoAgent. That is sufficient for a demo, but not for the full architecture described here.
+
+The runtime should be expanded to support the following specialized roles:
+
+#### `RailAgent`
+
+Successor to the generic fiat agent.
+
+Responsibilities:
+
+- manage rail metadata,
+- present and initiate fiat actions,
+- assist buyer in completing payment,
+- expose payment-state tooling.
+
+#### `WatcherAgent`
+
+Responsibilities:
+
+- subscribe to payment webhooks,
+- poll providers,
+- normalize events,
+- publish candidate observations into the internal event bus.
+
+#### `AttestationAgent`
+
+Responsibilities:
+
+- consume candidate payment observations,
+- perform proofing / attestation,
+- publish evidence hashes,
+- relay release submissions.
+
+#### `RiskAgent`
+
+Responsibilities:
+
+- apply per-rail risk policies,
+- decide whether immediate release, delayed release, or dispute path applies,
+- gate high-risk flows.
+
+#### `TreasuryAgent`
+
+Responsibilities:
+
+- verify that LP has adequate liquidity,
+- track offchain and onchain balances,
+- disable quoting when inventory becomes stale.
+
+### G.16 Sequence Diagram (Conceptual)
+
+The following sequence should be treated as the canonical settlement story for fiat-to-crypto:
+
+1. Buyer submits intent.
+2. Fiat-side routing chooses LP and rail.
+3. LP locks crypto.
+4. Order stores receiver commitment.
+5. UI renders registered QR and exact payment instructions.
+6. Buyer pays via bank/PSP.
+7. Provider emits webhook or API-observable event.
+8. Watcher agent verifies authenticity and correlates event.
+9. Attestation agent validates amount / receiver / reference / time.
+10. zkTLS or attestation payload is generated.
+11. Evidence blob is pinned to 0G Storage.
+12. Escrow receives evidence submission.
+13. Escrow verifies mode and constraints.
+14. Escrow releases crypto.
+15. Order timeline updates in UI.
+
+### G.17 Failure Modes and Required Handling
+
+This architecture must handle the following failure modes explicitly.
+
+#### Wrong QR / Wrong Receiver
+
+Cause:
+
+- LP changed receiver details outside the platform,
+- QR payload mismatch,
+- stale frontend state.
+
+Mitigation:
+
+- receiver commitment bound to order,
+- UI shows fingerprint,
+- watcher rejects events to unknown receiver,
+- escrow refuses proof if receiver commitment mismatches.
+
+#### Correct Payment, Missing Webhook
+
+Cause:
+
+- provider webhook outage,
+- network outage,
+- signature verification bug.
+
+Mitigation:
+
+- polling fallback,
+- user-uploaded receipt as dispute input,
+- delayed release path pending stronger evidence.
+
+#### Webhook Says Paid, Later Reversed
+
+Cause:
+
+- reversible rail,
+- fraud or clawback,
+- provider semantics too weak.
+
+Mitigation:
+
+- per-rail challenge windows,
+- risk engine,
+- release only on stronger finality statuses where possible,
+- slashing or reserve policy for high-risk rails.
+
+#### Duplicate or Replay Event
+
+Cause:
+
+- webhook retry,
+- malicious relay,
+- provider duplication.
+
+Mitigation:
+
+- idempotent event keys,
+- onchain replay protection,
+- one-time release guard.
+
+#### Ambiguous Match Across Multiple Orders
+
+Cause:
+
+- two orders with same amount,
+- missing reference,
+- rail gives weak metadata.
+
+Mitigation:
+
+- reference binding,
+- exact or near-exact match rules,
+- ambiguity routes to dispute/review path rather than auto-release.
+
+### G.18 Recommended Phased Implementation
+
+To reduce delivery risk, implement this architecture in phases.
+
+#### Phase 1: Strong Single-Attestor Demo
+
+- LP rail registration UI and schema
+- QR commitment storage
+- single watcher service
+- single attestation service
+- escrow stores receiver commitment
+- automatic release on verified BankSim / webhook evidence
+
+Goal:
+
+- prove the full product loop cleanly with deterministic behavior.
+
+#### Phase 2: Real Rail Integrations
+
+- real webhook providers
+- signed API verification
+- risk policy per rail
+- challenge windows
+- richer order timeline UI
+
+Goal:
+
+- move from simulated rails to production-like trust-minimized operations.
+
+#### Phase 3: Multi-Attestor and Stronger Decentralization
+
+- multiple watcher / attestation operators
+- threshold attestation
+- code-hash pinning
+- remote verifier diversity
+
+Goal:
+
+- reduce reliance on one backend operator.
+
+#### Phase 4: Reverse Flow and Treasury Optimization
+
+- crypto-to-fiat symmetric flow
+- LP treasury tooling
+- inventory alerts
+- automated rebalancing hooks
+
+Goal:
+
+- make the platform function as a real two-sided network instead of a one-way onramp.
+
+### G.19 User Experience Implications
+
+The product UI should evolve accordingly.
+
+The buyer should no longer experience the app as "two agents doing something vague."
+
+Instead, the buyer should see:
+
+- quote selected,
+- crypto locked,
+- payment target verified,
+- QR presented,
+- payment detected,
+- proof generated,
+- crypto released.
+
+The application should expose this as a visible settlement timeline.
+
+The LP dashboard should show:
+
+- registered rails,
+- registered QR details,
+- ownership verification state,
+- active quotes,
+- pending payment observations,
+- attestation queue,
+- released orders,
+- challenged orders.
+
+### G.20 Final Engineering Principle
+
+This appendix should guide all future implementation work with the following rule:
+
+> The goal is not to make fiat itself decentralized. The goal is to make fiat-triggered crypto release deterministic, auditable, non-custodial, and as trust-minimized as possible.
+
+Every design choice should be checked against that principle.
+
+If a proposed implementation gives a watcher, bot, admin, or LP unilateral release power, reject it.
+
+If a proposed implementation binds receiver commitments, verifies evidence, and makes escrow the final deterministic authority, it is aligned with this architecture.
+
+### G.21 Canonical End-to-End Protocol Flow
+
+This subsection formalizes the user's intended end-to-end protocol flow in its corrected and implementation-safe form. It should be treated as the canonical narrative for how Aegis works from the protocol level perspective.
+
+#### G.21.1 Core Aegis Model
+
+Aegis is built around the idea that every human participant on the platform is represented by two linked agent identities:
+
+- a **Fiat Agent**
+- a **Crypto Agent**
+
+These two agents belong to the same human user and are logically paired.
+
+The pairing is fundamental:
+
+- the **Fiat Agent** represents that user's fiat-side payment identity,
+- the **Crypto Agent** represents that user's crypto-side settlement identity.
+
+The system should assume that every active participant in the marketplace has both.
+
+#### G.21.2 Fiat Agent Responsibilities
+
+The Fiat Agent is the participant's fiat-side interface to the protocol.
+
+Its job is not to "hold fiat" in the same bearer-wallet sense as crypto. Instead, it is the structured representation of that participant's receiving and payment rail profile.
+
+Depending on the rail, a Fiat Agent may have associated:
+
+- UPI ID
+- QR code
+- bank account details
+- PSP receiver handle
+- payment link metadata
+- payout instructions
+- region, currency, and limit metadata
+
+At the protocol level, the correct abstraction is:
+
+- each Fiat Agent has one or more **registered fiat receiving profiles**
+- each receiving profile can be used by counterparties to pay that user through an external fiat rail
+
+This means that for UPI-like flows the Fiat Agent may expose:
+
+- a QR code
+- a UPI handle
+- exact beneficiary details
+
+For other rails it may expose:
+
+- bank transfer coordinates
+- Revolut transfer details
+- payout destination details
+
+#### G.21.3 Crypto Agent Responsibilities
+
+The Crypto Agent is the participant's crypto-side settlement identity.
+
+Each Crypto Agent has associated:
+
+- one or more wallet addresses
+- supported chains
+- supported settlement assets
+- available balances or inventory
+- escrow interaction capability
+
+The Crypto Agent is responsible for:
+
+- holding crypto inventory,
+- locking funds into escrow,
+- receiving released funds,
+- participating in quote and settlement flows.
+
+At a high level:
+
+- the Fiat Agent is the fiat endpoint,
+- the Crypto Agent is the onchain settlement endpoint.
+
+#### G.21.4 Example Buyer Journey
+
+Suppose a human participant has 100 INR and wants to receive ETH.
+
+That participant expresses this intent to Aegis through the application interface.
+
+From the protocol perspective, what this means is:
+
+- the human instructs their Fiat Agent to initiate a search for the best counterparty route,
+- the Fiat Agent works with the linked Crypto Agent and the broader network to determine how the trade can be settled.
+
+The user goal is:
+
+- pay fiat on one side,
+- receive crypto on the other side.
+
+#### G.21.5 Discovery and Quote Routing
+
+When the buyer requests `100 INR -> ETH`, the buyer-side Fiat Agent begins the discovery process.
+
+This discovery process occurs across the Aegis network using the AXL mesh.
+
+The buyer-side Fiat Agent:
+
+- broadcasts the intent,
+- searches for compatible counterparties,
+- receives candidate quotes,
+- evaluates route suitability.
+
+The route selection logic should consider:
+
+- quoted exchange rate
+- available crypto inventory
+- rail compatibility
+- settlement limits
+- expected speed
+- reputation of the counterparty
+- risk profile of the rail
+
+The result of this process is the selection of a counterparty represented by another linked agent pair:
+
+- the opposite human's Fiat Agent, which can receive the buyer's fiat,
+- the opposite human's Crypto Agent, which can deliver the required crypto.
+
+#### G.21.6 Economic Meaning of the Match
+
+It is important to understand what the match actually means.
+
+If the buyer wants ETH in exchange for INR, the matched counterparty is effectively saying:
+
+- "my Fiat Agent can receive your INR"
+- "my Crypto Agent can deliver your ETH"
+
+So the bilateral trade is:
+
+- buyer-side fiat moves to the seller-side Fiat Agent's registered payment profile,
+- seller-side crypto moves from the seller-side Crypto Agent to the buyer-side Crypto Agent.
+
+This pairing is the foundation of the protocol.
+
+#### G.21.7 Required Precondition: Crypto Must Enter Escrow First
+
+Before the buyer makes any fiat payment, the selected counterparty's Crypto Agent must lock the quoted crypto amount into escrow.
+
+This is a non-negotiable safety rule.
+
+The order of operations must be:
+
+1. quote agreed,
+2. crypto locked in escrow,
+3. payment instructions shown,
+4. buyer pays fiat,
+5. watcher / attestation path verifies the payment,
+6. escrow releases crypto.
+
+If fiat payment instructions are shown before crypto is locked, the protocol exposes the buyer to unnecessary counterparty risk.
+
+Therefore:
+
+- the counterparty Crypto Agent must escrow the ETH first,
+- only then may the application reveal the exact receiver details of the opposite Fiat Agent.
+
+#### G.21.8 Showing the Buyer the Opposite Fiat Agent's Payment Details
+
+Once the seller-side Crypto Agent has successfully locked funds into escrow, the buyer-side application may reveal the seller-side Fiat Agent's payment destination.
+
+In the most common UPI-style flow this may include:
+
+- QR code
+- UPI ID
+- beneficiary name
+- amount
+- required payment reference
+
+More generally, the protocol should think of this as exposing the selected **fiat receiving profile** of the counterparty.
+
+This profile must be:
+
+- registered,
+- committed,
+- validated,
+- and bound to the order.
+
+The buyer should be paying the registered fiat endpoint associated with the matched opposite participant, not an arbitrary ad hoc address typed into chat.
+
+#### G.21.9 Fiat Payment Step
+
+After the payment details are shown, the buyer pays the opposite side using the external fiat rail.
+
+In the example case:
+
+- the buyer-side human pays 100 INR,
+- the payment goes to the selected receiving profile of the opposite participant's Fiat Agent.
+
+The protocol-level interpretation is:
+
+- the buyer's Fiat Agent initiates or assists with fiat-side payment,
+- the opposite Fiat Agent is the designated receiver identity for that order.
+
+This is an offchain payment event. It does not happen inside the blockchain itself.
+
+#### G.21.10 Invoking the Watcher
+
+After the fiat payment is made, a Watcher Agent is invoked or activated for that order.
+
+The Watcher Agent's job is to observe the fiat-side account or payment rail for evidence that the expected payment has occurred.
+
+Depending on the rail, the Watcher Agent may use:
+
+- webhooks
+- polling APIs
+- PSP transaction feeds
+- bank account transaction updates
+- callback notifications
+- rail-specific status endpoints
+
+The important conceptual point is that the Watcher Agent is monitoring the fiat-side payment evidence associated with the relevant Fiat Agent account/profile.
+
+#### G.21.11 Critical Safety Correction: The Watcher Must Not Decide Release
+
+This is the single most important correction to the naive protocol formulation.
+
+It is **not safe** to define the flow as:
+
+- "if the watcher deems fit, the watcher releases the crypto; otherwise the watcher returns it."
+
+That gives too much unilateral power to the watcher.
+
+Instead, the correct design is:
+
+- the Watcher Agent observes,
+- the Watcher Agent verifies authenticity of incoming payment signals,
+- the Watcher Agent correlates those signals to the correct order,
+- the Watcher Agent forwards evidence into the proof / attestation path,
+- the Escrow contract makes the final release or refund decision.
+
+The watcher is therefore an observer and evidence source, not the final authority.
+
+#### G.21.12 The Attestation / Proof Step
+
+Once the Watcher Agent has detected a candidate matching payment event, the event should be processed by an Attestation Agent or Proof Agent.
+
+This agent is responsible for turning raw payment observations into deterministic settlement evidence.
+
+Its responsibilities include:
+
+- verifying that the payment went to the correct receiving profile,
+- verifying that the amount matches the expected order amount,
+- verifying that the payment reference or identifying fields match the order,
+- verifying that the payment occurred within the permitted settlement window,
+- verifying the authenticity of the bank / PSP evidence,
+- generating zkTLS proof where supported,
+- generating attestation payloads where zkTLS is unavailable,
+- submitting the evidence package to the escrow system.
+
+This separation is important:
+
+- the Watcher Agent detects,
+- the Attestation Agent proves,
+- the Escrow contract decides.
+
+#### G.21.13 Escrow as the Final Deterministic Authority
+
+The crypto held by the matched Crypto Agent is locked in escrow for the duration of the order.
+
+That escrow must not be "monitored by the watcher" in the sense that the watcher has discretionary power over it.
+
+The correct statement is:
+
+- the escrow is monitored by protocol rules,
+- the watcher submits observations,
+- the proof layer submits evidence,
+- the escrow contract enforces deterministic release or refund logic.
+
+In other words:
+
+- the crypto goes into escrow from the counterparty Crypto Agent,
+- the escrow contract waits for valid payment evidence,
+- if the evidence matches the order conditions, the escrow releases crypto to the buyer-side Crypto Agent,
+- if the evidence does not arrive or fails validation before the deadline, the escrow refunds according to protocol rules.
+
+#### G.21.14 Canonical Happy-Path Flow
+
+The canonical happy path for `100 INR -> ETH` is:
+
+1. Buyer enters `100 INR -> ETH`.
+2. Buyer-side Fiat Agent searches Aegis over AXL.
+3. Best counterparty linked pair is selected.
+4. Counterparty Crypto Agent locks quoted ETH into escrow.
+5. Buyer is shown the counterparty Fiat Agent's registered receiving profile.
+6. Buyer pays 100 INR via the indicated fiat rail.
+7. Watcher Agent detects the payment event on the receiving side.
+8. Attestation / Proof Agent validates and transforms the event into settlement evidence.
+9. Evidence is submitted to escrow.
+10. Escrow releases ETH to the buyer-side Crypto Agent.
+
+This should be treated as the canonical settlement story for the fiat-to-crypto direction.
+
+#### G.21.15 Canonical Failure / Timeout Path
+
+If payment evidence does not validate or does not arrive before the deadline, the unhappy path should be:
+
+1. Counterparty Crypto Agent has funds locked in escrow.
+2. Buyer either never pays, pays incorrectly, or produces evidence that does not match.
+3. Watcher and proof layers fail to produce valid order-matching evidence before the deadline.
+4. Escrow does not release crypto.
+5. Escrow refunds or expires the order according to contract logic.
+6. Any anti-grief bond or slashing logic is applied according to fault attribution.
+
+Again, the key point is:
+
+- the watcher does not "decide not to release"
+- the escrow simply does not receive valid evidence satisfying the release conditions
+
+#### G.21.16 Symmetry for the Reverse Direction
+
+The same protocol logic applies in reverse for crypto-to-fiat settlement.
+
+In the reverse direction:
+
+- one side locks crypto,
+- the opposite side sends fiat,
+- watcher observes the fiat event,
+- attestation / proof is generated,
+- escrow releases crypto to the appropriate counterparty once conditions are satisfied.
+
+So the protocol should be designed symmetrically:
+
+- fiat-to-crypto,
+- crypto-to-fiat,
+
+with the same core rule:
+
+- fiat movement is observed offchain,
+- crypto movement is enforced onchain,
+- release occurs only through escrow-validated evidence.
+
+#### G.21.17 Final Canonical Summary
+
+The full protocol-level understanding of Aegis should therefore be:
+
+- every user has a linked Fiat Agent and Crypto Agent,
+- the Fiat Agent represents the user's fiat receiving / payment rail identity,
+- the Crypto Agent represents the user's onchain settlement identity,
+- a buyer-side Fiat Agent searches the network for the best opposite linked pair,
+- the opposite Fiat Agent is where fiat is paid,
+- the opposite Crypto Agent escrows crypto for settlement,
+- a Watcher Agent observes the fiat-side payment event,
+- an Attestation / Proof Agent converts that observation into release evidence,
+- the Escrow contract, not the watcher, makes the final deterministic release or refund decision.
+
+This is the correct protocol-level formulation and should override any earlier interpretation in which a watcher had unilateral authority to release or return funds.
