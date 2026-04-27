@@ -15,6 +15,18 @@ interface IVerifier {
     ) external view returns (bool);
 }
 
+interface IVerifierV2 {
+    function verify(
+        bytes calldata proofData,
+        uint256 expectedAmount,
+        string calldata currency,
+        string calldata railType,
+        bytes32 receiverCommitment,
+        bytes32 referenceHash,
+        string calldata attestationMode
+    ) external view returns (bool);
+}
+
 /**
  * @title Escrow
  * @notice Manages fiat-to-crypto swap escrows. Two release paths:
@@ -51,8 +63,13 @@ contract Escrow is ReentrancyGuard, Ownable {
         uint256 lpBond;
         uint256 deadline;
         OrderState state;
-        bytes32 proofHash;     // 0G Storage root (zkTLS path)
-        bytes32 evidenceHash;  // 0G Storage root (webhook path)
+        bytes32 proofHash;           // 0G Storage root (zkTLS path)
+        bytes32 evidenceHash;        // 0G Storage root (webhook path)
+        // G.14 additions for trust-minimized fiat edge architecture
+        bytes32 receiverCommitment;  // LP's committed payment receiver hash
+        bytes32 referenceHash;       // Payment reference for matching
+        uint256 challengeWindow;     // Seconds before final release (per rail)
+        string attestationMode;      // "banksim", "webhook", "zktls", "multi-attestor"
     }
 
     mapping(uint256 => Order) public orders;
@@ -79,6 +96,12 @@ contract Escrow is ReentrancyGuard, Ownable {
     event OrderExpired(uint256 indexed orderId, address slashed);
     event OrderDisputed(uint256 indexed orderId, address disputant);
     event OrderResolved(uint256 indexed orderId, OrderState resolution);
+    // G.14 events for trust-minimized fiat edge architecture
+    event ReceiverCommitted(uint256 indexed orderId, bytes32 receiverCommitment);
+    event PaymentObserved(uint256 indexed orderId, string rail, uint256 amount);
+    event EvidenceSubmitted(uint256 indexed orderId, bytes32 evidenceHash, string attestationMode);
+    event ReleaseChallenged(uint256 indexed orderId, bytes32 challenge);
+    event ReleaseFinalized(uint256 indexed orderId);
 
     error InvalidState(OrderState expected, OrderState actual);
     error Unauthorized();
@@ -130,7 +153,11 @@ contract Escrow is ReentrancyGuard, Ownable {
             deadline: block.timestamp + deadlineSeconds,
             state: OrderState.LOCKED,
             proofHash: bytes32(0),
-            evidenceHash: bytes32(0)
+            evidenceHash: bytes32(0),
+            receiverCommitment: bytes32(0),
+            referenceHash: bytes32(0),
+            challengeWindow: 0,
+            attestationMode: ""
         });
 
         if (bytes(orderRefId).length > 0) {
@@ -142,6 +169,64 @@ contract Escrow is ReentrancyGuard, Ownable {
 
         emit OrderCreated(orderId, buyer, msg.sender);
         emit OrderLocked(orderId, tokenAmount, orders[orderId].deadline);
+    }
+
+    /**
+     * @notice Lock with G.14 commitments (trust-minimized fiat edge architecture)
+     */
+    function lockWithCommitments(
+        address buyer,
+        address token,
+        uint256 tokenAmount,
+        uint256 fiatAmount,
+        string calldata fiatCurrency,
+        string calldata railType,
+        uint256 deadlineSeconds,
+        string calldata orderRefId,
+        bytes32 receiverCommitment,
+        bytes32 referenceHash,
+        uint256 challengeWindow,
+        string calldata attestationMode
+    ) external payable nonReentrant returns (uint256 orderId) {
+        if (deadlineSeconds < MIN_DEADLINE || deadlineSeconds > MAX_DEADLINE) {
+            revert InvalidDeadline();
+        }
+
+        uint256 lpBond = (tokenAmount * BOND_PERCENT) / 10000;
+        if (msg.value < lpBond) revert InsufficientBond();
+
+        orderId = nextOrderId++;
+        orders[orderId] = Order({
+            id: orderId,
+            buyer: buyer,
+            lp: msg.sender,
+            token: token,
+            tokenAmount: tokenAmount,
+            fiatAmount: fiatAmount,
+            fiatCurrency: fiatCurrency,
+            railType: railType,
+            buyerBond: 0,
+            lpBond: lpBond,
+            deadline: block.timestamp + deadlineSeconds,
+            state: OrderState.LOCKED,
+            proofHash: bytes32(0),
+            evidenceHash: bytes32(0),
+            receiverCommitment: receiverCommitment,
+            referenceHash: referenceHash,
+            challengeWindow: challengeWindow,
+            attestationMode: attestationMode
+        });
+
+        if (bytes(orderRefId).length > 0) {
+            orderIdByHash[keccak256(bytes(orderRefId))] = orderId;
+        }
+        lockedOrderIds.push(orderId);
+
+        IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
+
+        emit OrderCreated(orderId, buyer, msg.sender);
+        emit OrderLocked(orderId, tokenAmount, orders[orderId].deadline);
+        emit ReceiverCommitted(orderId, receiverCommitment);
     }
 
     function commit(uint256 orderId) external payable nonReentrant {
