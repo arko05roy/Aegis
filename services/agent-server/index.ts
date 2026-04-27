@@ -78,7 +78,7 @@ class AgentServer {
       name: `fiat-${key.slice(2, 10)}`,
       privateKey: PRIVATE_KEY,
       rpcUrl: RPC_URL,
-      supportedRails: ['banksim', 'upi', 'venmo'],
+      supportedRails: ['banksim', 'upi', 'venmo', 'transak'],
       demoMode: false,
       webhookUrl: WEBHOOK_URL,
     });
@@ -92,7 +92,7 @@ class AgentServer {
         { token: 'USDC', balance: '10000', minOrder: '1' },
       ],
       spreadBps: 50,
-      supportedRails: ['banksim', 'upi', 'venmo'],
+      supportedRails: ['banksim', 'upi', 'venmo', 'transak'],
       fiatDetails: {
         banksim: { account: 'lp@banksim' },
         upi: { vpa: 'lp@upi' },

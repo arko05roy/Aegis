@@ -3,9 +3,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAccount, useConnect, useDisconnect, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits } from 'viem';
-import { AnimatedAIChat } from '@/components/ui/animated-ai-chat';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, XCircle, Loader2, ArrowRight, Wallet, Zap, ExternalLink, ChevronDown, Bot, Banknote, Coins } from 'lucide-react';
+import {
+  CheckCircle2, XCircle, Loader2, ArrowRight, Wallet, Zap, ExternalLink,
+  ChevronDown, Banknote, Coins, ArrowDownUp, Shield, Clock, Activity,
+  Sparkles, Radio, CircleDot, TrendingUp, Star
+} from 'lucide-react';
 import Link from 'next/link';
 
 type OrderState = 'INIT' | 'CONNECTING_AGENTS' | 'BROADCASTING' | 'QUOTING' | 'SELECTING' | 'COMMITTING' | 'LOCKED' | 'PAYING' | 'RELEASED' | 'ERROR';
@@ -90,6 +93,23 @@ const ERC20_ABI = [
   },
 ] as const;
 
+const FIAT_CURRENCIES = [
+  { code: 'USD', name: 'US Dollar', symbol: '$', flag: '🇺🇸' },
+  { code: 'INR', name: 'Indian Rupee', symbol: '₹', flag: '🇮🇳' },
+  { code: 'EUR', name: 'Euro', symbol: '€', flag: '🇪🇺' },
+];
+
+const CRYPTO_CURRENCIES = [
+  { code: 'ETH', name: 'Ethereum', icon: '⟠' },
+  { code: 'USDC', name: 'USD Coin', icon: '◎' },
+];
+
+const RAILS = [
+  { id: 'banksim', name: 'BankSim', desc: 'Demo rail' },
+  { id: 'upi', name: 'UPI', desc: 'India instant' },
+  { id: 'venmo', name: 'Venmo', desc: 'US P2P' },
+];
+
 function ConnectWallet() {
   const { address, isConnected } = useAccount();
   const { connect, connectors } = useConnect();
@@ -99,7 +119,7 @@ function ConnectWallet() {
     return (
       <button onClick={() => disconnect()} className="flex items-center gap-2 bg-zinc-800/50 hover:bg-zinc-700/50 px-4 py-2 rounded-full border border-zinc-700/50 transition-all">
         <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        <span className="text-sm">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
+        <span className="text-sm font-mono">{address?.slice(0, 6)}...{address?.slice(-4)}</span>
       </button>
     );
   }
@@ -115,157 +135,513 @@ function ConnectWallet() {
   );
 }
 
-function AgentDropdown({ agentStatus }: { agentStatus: AgentStatus | null }) {
-  const [isOpen, setIsOpen] = useState(false);
-
-  if (!agentStatus) return null;
+function AgentStatusBadge({ agentStatus }: { agentStatus: AgentStatus | null }) {
+  if (!agentStatus) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-zinc-500">
+        <div className="w-2 h-2 rounded-full bg-zinc-600" />
+        <span>No agents</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-1.5 rounded-full transition-all"
-      >
-        <Zap className="w-3 h-3" />
-        <span>2 Agents Active</span>
-        <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <>
-            <motion.div
-              className="fixed inset-0 z-[999]"
-              onClick={() => setIsOpen(false)}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            />
-            <motion.div
-              className="absolute right-0 top-full mt-2 w-80 bg-zinc-900/95 backdrop-blur-xl rounded-xl border border-zinc-800 shadow-2xl z-[1000] overflow-hidden"
-              initial={{ opacity: 0, y: -10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.95 }}
-              transition={{ duration: 0.15 }}
-            >
-              <div className="p-4 border-b border-zinc-800">
-                <h3 className="text-sm font-medium text-white mb-1">Your AI Agents</h3>
-                <p className="text-xs text-zinc-500">Autonomous agents managing your swaps</p>
-              </div>
-
-              <div className="p-2">
-                {/* Fiat Agent */}
-                <div className="p-3 rounded-lg hover:bg-zinc-800/50 transition-colors">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500/20 to-yellow-500/20 flex items-center justify-center">
-                      <Banknote className="w-5 h-5 text-orange-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-medium text-white">Fiat Agent</span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        {agentStatus.decisions?.fiat?.attestation && (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded ${agentStatus.decisions.fiat.attestation.verified ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                            {agentStatus.decisions.fiat.attestation.verified ? 'TEE ✓' : 'TEE ○'}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-zinc-500 mb-2">Manages rail credentials & fiat transfers</p>
-                      <div className="flex items-center gap-2">
-                        <code className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded font-mono">
-                          {agentStatus.fiatPubkey?.slice(0, 16)}...
-                        </code>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(agentStatus.fiatPubkey)}
-                          className="text-zinc-500 hover:text-white transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
-                        </button>
-                      </div>
-                      {agentStatus.decisions?.fiat?.attestation?.codeHash && (
-                        <div className="mt-2 text-[9px] text-zinc-600 font-mono truncate">
-                          hash: {agentStatus.decisions.fiat.attestation.codeHash.slice(0, 16)}...
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Crypto Agent */}
-                <div className="p-3 rounded-lg hover:bg-zinc-800/50 transition-colors">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center">
-                      <Coins className="w-5 h-5 text-cyan-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-medium text-white">Crypto Agent</span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        {agentStatus.decisions?.crypto?.attestation && (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded ${agentStatus.decisions.crypto.attestation.verified ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                            {agentStatus.decisions.crypto.attestation.verified ? 'TEE ✓' : 'TEE ○'}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-zinc-500 mb-2">Multi-chain signer & inventory manager</p>
-                      <div className="flex items-center gap-2">
-                        <code className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded font-mono">
-                          {agentStatus.cryptoPubkey?.slice(0, 16)}...
-                        </code>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(agentStatus.cryptoPubkey)}
-                          className="text-zinc-500 hover:text-white transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
-                        </button>
-                      </div>
-                      {agentStatus.decisions?.crypto?.attestation?.codeHash && (
-                        <div className="mt-2 text-[9px] text-zinc-600 font-mono truncate">
-                          hash: {agentStatus.decisions.crypto.attestation.codeHash.slice(0, 16)}...
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3 border-t border-zinc-800 bg-zinc-800/30">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-zinc-500">Connected via AXL mesh</span>
-                  <span className="text-emerald-400">● Online</span>
-                </div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+    <div className="flex items-center gap-2 text-xs text-emerald-400">
+      <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+      <span>2 Agents Online</span>
     </div>
   );
 }
 
-function parseSwapIntent(message: string): { amount: string; fromCcy: string; toCcy: string } | null {
-  // Match patterns like "swap 100 USD to ETH" or "100 usd → eth" or "/swap 100 INR ETH"
-  const patterns = [
-    /(?:swap\s+)?(\d+(?:\.\d+)?)\s*(USD|INR|EUR)\s*(?:to|→|->)\s*(ETH|USDC|BTC)/i,
-    /\/swap\s+(\d+(?:\.\d+)?)\s*(USD|INR|EUR)\s+(ETH|USDC|BTC)/i,
-    /(\d+(?:\.\d+)?)\s*(USD|INR|EUR)\s*(?:to|→|->|for)\s*(ETH|USDC|BTC)/i,
+function SwapForm({
+  intent,
+  setIntent,
+  onSubmit,
+  disabled,
+  agentStatus
+}: {
+  intent: { amount: string; fromCcy: string; toCcy: string; rail: string };
+  setIntent: (i: any) => void;
+  onSubmit: () => void;
+  disabled: boolean;
+  agentStatus: AgentStatus | null;
+}) {
+  const [fromOpen, setFromOpen] = useState(false);
+  const [toOpen, setToOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
+
+  const selectedFiat = FIAT_CURRENCIES.find(c => c.code === intent.fromCcy) || FIAT_CURRENCIES[0];
+  const selectedCrypto = CRYPTO_CURRENCIES.find(c => c.code === intent.toCcy) || CRYPTO_CURRENCIES[0];
+  const selectedRail = RAILS.find(r => r.id === intent.rail) || RAILS[0];
+
+  return (
+    <div className="relative">
+      {/* Card glow effect */}
+      <div className="absolute -inset-px bg-gradient-to-b from-emerald-500/20 via-transparent to-transparent rounded-2xl blur-sm" />
+
+      <div className="relative bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-zinc-800/80 overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-zinc-800/50 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 flex items-center justify-center">
+              <ArrowDownUp className="w-4 h-4 text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-medium text-white">Swap</h2>
+              <p className="text-xs text-zinc-500">Fiat to Crypto</p>
+            </div>
+          </div>
+          <AgentStatusBadge agentStatus={agentStatus} />
+        </div>
+
+        <div className="p-6 space-y-4">
+          {/* From (Fiat) */}
+          <div className="space-y-2">
+            <label className="text-xs text-zinc-500 uppercase tracking-wider">You Pay</label>
+            <div className="relative bg-zinc-800/50 rounded-xl border border-zinc-700/50 focus-within:border-emerald-500/50 transition-colors">
+              <input
+                type="number"
+                value={intent.amount}
+                onChange={(e) => setIntent({ ...intent, amount: e.target.value })}
+                className="w-full bg-transparent px-4 py-4 text-2xl font-light text-white outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                placeholder="0.00"
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                <button
+                  onClick={() => setFromOpen(!fromOpen)}
+                  className="flex items-center gap-2 bg-zinc-700/50 hover:bg-zinc-700 px-3 py-2 rounded-lg transition-colors"
+                >
+                  <span className="text-lg">{selectedFiat.flag}</span>
+                  <span className="text-sm font-medium">{selectedFiat.code}</span>
+                  <ChevronDown className="w-4 h-4 text-zinc-400" />
+                </button>
+
+                <AnimatePresence>
+                  {fromOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute right-0 top-full mt-2 w-48 bg-zinc-800 rounded-xl border border-zinc-700 shadow-2xl z-50 overflow-hidden"
+                    >
+                      {FIAT_CURRENCIES.map((c) => (
+                        <button
+                          key={c.code}
+                          onClick={() => { setIntent({ ...intent, fromCcy: c.code }); setFromOpen(false); }}
+                          className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-700/50 transition-colors ${intent.fromCcy === c.code ? 'bg-emerald-500/10 text-emerald-400' : 'text-white'}`}
+                        >
+                          <span className="text-lg">{c.flag}</span>
+                          <div className="text-left">
+                            <div className="text-sm font-medium">{c.code}</div>
+                            <div className="text-xs text-zinc-500">{c.name}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
+
+          {/* Swap arrow */}
+          <div className="flex justify-center -my-1">
+            <div className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+              <ArrowDownUp className="w-4 h-4 text-zinc-400" />
+            </div>
+          </div>
+
+          {/* To (Crypto) */}
+          <div className="space-y-2">
+            <label className="text-xs text-zinc-500 uppercase tracking-wider">You Receive</label>
+            <div className="relative bg-zinc-800/50 rounded-xl border border-zinc-700/50">
+              <div className="px-4 py-4 text-2xl font-light text-zinc-500">
+                ≈ quotes pending
+              </div>
+              <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                <button
+                  onClick={() => setToOpen(!toOpen)}
+                  className="flex items-center gap-2 bg-zinc-700/50 hover:bg-zinc-700 px-3 py-2 rounded-lg transition-colors"
+                >
+                  <span className="text-lg">{selectedCrypto.icon}</span>
+                  <span className="text-sm font-medium">{selectedCrypto.code}</span>
+                  <ChevronDown className="w-4 h-4 text-zinc-400" />
+                </button>
+
+                <AnimatePresence>
+                  {toOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute right-0 top-full mt-2 w-48 bg-zinc-800 rounded-xl border border-zinc-700 shadow-2xl z-50 overflow-hidden"
+                    >
+                      {CRYPTO_CURRENCIES.map((c) => (
+                        <button
+                          key={c.code}
+                          onClick={() => { setIntent({ ...intent, toCcy: c.code }); setToOpen(false); }}
+                          className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-700/50 transition-colors ${intent.toCcy === c.code ? 'bg-emerald-500/10 text-emerald-400' : 'text-white'}`}
+                        >
+                          <span className="text-lg">{c.icon}</span>
+                          <div className="text-left">
+                            <div className="text-sm font-medium">{c.code}</div>
+                            <div className="text-xs text-zinc-500">{c.name}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Rail */}
+          <div className="space-y-2">
+            <label className="text-xs text-zinc-500 uppercase tracking-wider">Payment Rail</label>
+            <div className="relative">
+              <button
+                onClick={() => setRailOpen(!railOpen)}
+                className="w-full flex items-center justify-between bg-zinc-800/50 rounded-xl border border-zinc-700/50 px-4 py-3 hover:border-zinc-600 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Radio className="w-4 h-4 text-emerald-400" />
+                  <div className="text-left">
+                    <div className="text-sm font-medium text-white">{selectedRail.name}</div>
+                    <div className="text-xs text-zinc-500">{selectedRail.desc}</div>
+                  </div>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform ${railOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              <AnimatePresence>
+                {railOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute left-0 right-0 top-full mt-2 bg-zinc-800 rounded-xl border border-zinc-700 shadow-2xl z-50 overflow-hidden"
+                  >
+                    {RAILS.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => { setIntent({ ...intent, rail: r.id }); setRailOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-zinc-700/50 transition-colors ${intent.rail === r.id ? 'bg-emerald-500/10' : ''}`}
+                      >
+                        <Radio className={`w-4 h-4 ${intent.rail === r.id ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                        <div className="text-left">
+                          <div className={`text-sm font-medium ${intent.rail === r.id ? 'text-emerald-400' : 'text-white'}`}>{r.name}</div>
+                          <div className="text-xs text-zinc-500">{r.desc}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Submit */}
+          <motion.button
+            onClick={onSubmit}
+            disabled={disabled || !agentStatus || !intent.amount}
+            className="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 disabled:from-zinc-700 disabled:to-zinc-700 disabled:cursor-not-allowed text-white font-medium py-4 rounded-xl transition-all flex items-center justify-center gap-2"
+            whileHover={{ scale: disabled ? 1 : 1.01 }}
+            whileTap={{ scale: disabled ? 1 : 0.99 }}
+          >
+            {!agentStatus ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Spawning Agents...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Get Quotes
+              </>
+            )}
+          </motion.button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuoteCard({ quote, index, intent, onSelect, selected }: {
+  quote: Quote;
+  index: number;
+  intent: { fromCcy: string; toCcy: string };
+  onSelect: () => void;
+  selected: boolean;
+}) {
+  return (
+    <motion.button
+      onClick={onSelect}
+      className={`w-full text-left p-4 rounded-xl border transition-all ${
+        selected
+          ? 'bg-emerald-500/10 border-emerald-500/50'
+          : 'bg-zinc-800/50 border-zinc-700/50 hover:border-zinc-600'
+      }`}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.1 }}
+      whileHover={{ scale: 1.01 }}
+    >
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-light text-emerald-400">{quote.outputAmount}</span>
+            <span className="text-sm text-zinc-400">{intent.toCcy}</span>
+          </div>
+          <div className="text-xs text-zinc-500 mt-1">
+            Rate: {quote.rate} {intent.toCcy}/{intent.fromCcy}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 px-2 py-1 bg-zinc-700/50 rounded-lg">
+          <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+          <span className="text-xs font-medium">{quote.reputation}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2 text-zinc-500">
+          <span>Fee: {quote.fee}</span>
+          <span>•</span>
+          <span className="font-mono">{quote.lpAgent.slice(0, 10)}...</span>
+        </div>
+        <ArrowRight className={`w-4 h-4 transition-colors ${selected ? 'text-emerald-400' : 'text-zinc-600'}`} />
+      </div>
+    </motion.button>
+  );
+}
+
+function OrderProgress({ state, intent, selectedQuote }: {
+  state: OrderState;
+  intent: { amount: string; fromCcy: string; toCcy: string };
+  selectedQuote?: Quote;
+}) {
+  const steps = [
+    { id: 'INIT', label: 'Ready', icon: CircleDot },
+    { id: 'BROADCASTING', label: 'Broadcasting', icon: Radio, includes: ['BROADCASTING', 'QUOTING'] },
+    { id: 'SELECTING', label: 'Quotes', icon: TrendingUp, includes: ['SELECTING'] },
+    { id: 'COMMITTING', label: 'Locking', icon: Shield, includes: ['COMMITTING'] },
+    { id: 'LOCKED', label: 'Locked', icon: Clock, includes: ['LOCKED'] },
+    { id: 'PAYING', label: 'Paying', icon: Banknote, includes: ['PAYING'] },
+    { id: 'RELEASED', label: 'Complete', icon: CheckCircle2 },
   ];
 
-  for (const pattern of patterns) {
-    const match = message.match(pattern);
-    if (match) {
-      return {
-        amount: match[1],
-        fromCcy: match[2].toUpperCase(),
-        toCcy: match[3].toUpperCase(),
-      };
+  const getCurrentStepIndex = () => {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const step = steps[i];
+      if (step.id === state || step.includes?.includes(state)) return i;
     }
-  }
-  return null;
+    return 0;
+  };
+
+  const currentIdx = getCurrentStepIndex();
+
+  return (
+    <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-4">
+      <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <Activity className="w-3.5 h-3.5" />
+        Order Progress
+      </h3>
+
+      <div className="space-y-2">
+        {steps.map((step, idx) => {
+          const Icon = step.icon;
+          const isActive = idx === currentIdx;
+          const isComplete = idx < currentIdx;
+          const isPending = idx > currentIdx;
+
+          return (
+            <div key={step.id} className="flex items-center gap-3">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
+                isActive ? 'bg-emerald-500/20 text-emerald-400' :
+                isComplete ? 'bg-emerald-500/10 text-emerald-500' :
+                'bg-zinc-800 text-zinc-600'
+              }`}>
+                {isActive ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Icon className="w-3.5 h-3.5" />
+                )}
+              </div>
+              <span className={`text-sm ${
+                isActive ? 'text-white font-medium' :
+                isComplete ? 'text-zinc-400' :
+                'text-zinc-600'
+              }`}>
+                {step.label}
+              </span>
+              {isActive && (
+                <span className="ml-auto text-xs text-emerald-400">In progress</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {selectedQuote && state !== 'INIT' && (
+        <div className="mt-4 pt-4 border-t border-zinc-800">
+          <div className="text-xs text-zinc-500 mb-1">Selected Quote</div>
+          <div className="text-lg font-light text-white">
+            {selectedQuote.outputAmount} <span className="text-zinc-400">{intent.toCcy}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentActivityLog({ events }: { events: AxlEvent[] }) {
+  return (
+    <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-4">
+      <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <Zap className="w-3.5 h-3.5" />
+        Agent Activity
+      </h3>
+
+      <div className="space-y-1 max-h-40 overflow-y-auto font-mono text-xs">
+        {events.length === 0 ? (
+          <p className="text-zinc-600 text-center py-4">Waiting for activity...</p>
+        ) : (
+          events.slice().reverse().map((e, i) => (
+            <motion.div
+              key={i}
+              className="flex gap-2 py-1"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+            >
+              <span className="text-zinc-600 w-16 shrink-0">
+                {new Date(e.ts).toISOString().slice(11, 19)}
+              </span>
+              <span className={`w-10 shrink-0 ${
+                e.dir === 'send' ? 'text-orange-400' :
+                e.dir === 'recv' ? 'text-emerald-400' :
+                'text-blue-400'
+              }`}>
+                {e.dir}
+              </span>
+              <span className="text-zinc-300 truncate">{e.type}</span>
+            </motion.div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TransactionLinks({ lockTx, releaseTx, evidenceHash }: {
+  lockTx?: string;
+  releaseTx?: string;
+  evidenceHash?: string;
+}) {
+  if (!lockTx && !releaseTx && !evidenceHash) return null;
+
+  return (
+    <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-4">
+      <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+        <ExternalLink className="w-3.5 h-3.5" />
+        Transactions
+      </h3>
+
+      <div className="space-y-2">
+        {lockTx && (
+          <a
+            href={`https://chainscan-galileo.0g.ai/tx/${lockTx}`}
+            target="_blank"
+            className="block p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800 transition-colors group"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-zinc-400">Lock</span>
+              <ExternalLink className="w-3 h-3 text-zinc-500 group-hover:text-white transition-colors" />
+            </div>
+            <div className="text-xs font-mono text-zinc-300 truncate">{lockTx}</div>
+          </a>
+        )}
+
+        {releaseTx && (
+          <a
+            href={`https://chainscan-galileo.0g.ai/tx/${releaseTx}`}
+            target="_blank"
+            className="block p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors group"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-emerald-400">Release</span>
+              <ExternalLink className="w-3 h-3 text-emerald-400 group-hover:text-emerald-300 transition-colors" />
+            </div>
+            <div className="text-xs font-mono text-emerald-300 truncate">{releaseTx}</div>
+          </a>
+        )}
+
+        {evidenceHash && (
+          <div className="p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+            <div className="text-xs text-purple-400 mb-1">0G Evidence</div>
+            <div className="text-xs font-mono text-purple-300 truncate">{evidenceHash}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AgentCards({ agentStatus }: { agentStatus: AgentStatus | null }) {
+  if (!agentStatus) return null;
+
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {/* Fiat Agent */}
+      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500/20 to-yellow-500/20 flex items-center justify-center">
+            <Banknote className="w-5 h-5 text-orange-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-white">Fiat Agent</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+            <p className="text-xs text-zinc-500">Rail & payments</p>
+          </div>
+        </div>
+        <code className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-1 rounded font-mono block truncate">
+          {agentStatus.fiatPubkey?.slice(0, 20)}...
+        </code>
+        {agentStatus.decisions?.fiat?.attestation?.verified && (
+          <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-400">
+            <Shield className="w-3 h-3" />
+            TEE Attested
+          </div>
+        )}
+      </div>
+
+      {/* Crypto Agent */}
+      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800/50 p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center">
+            <Coins className="w-5 h-5 text-cyan-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-white">Crypto Agent</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+            <p className="text-xs text-zinc-500">Signer & inventory</p>
+          </div>
+        </div>
+        <code className="text-[10px] text-zinc-400 bg-zinc-800 px-2 py-1 rounded font-mono block truncate">
+          {agentStatus.cryptoPubkey?.slice(0, 20)}...
+        </code>
+        {agentStatus.decisions?.crypto?.attestation?.verified && (
+          <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-400">
+            <Shield className="w-3 h-3" />
+            TEE Attested
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function P2PPage() {
@@ -275,7 +651,6 @@ export default function P2PPage() {
   const [intent, setIntent] = useState({ amount: '100', fromCcy: 'USD', toCcy: 'ETH', rail: 'banksim' });
   const [orderRefId, setOrderRefId] = useState('');
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
-  const [lastMessage, setLastMessage] = useState('');
 
   const { writeContract: approve, data: approveTxHash, error: approveError } = useWriteContract();
   const { writeContract: lock, data: lockTxHash, error: lockError } = useWriteContract();
@@ -314,7 +689,6 @@ export default function P2PPage() {
           addLog('info', `Fiat Agent: ${data.fiatPubkey?.slice(0, 12)}...`);
           addLog('info', `Crypto Agent: ${data.cryptoPubkey?.slice(0, 12)}...`);
 
-          // Fetch decisions/attestation after short delay (agents need time to attest)
           setTimeout(async () => {
             try {
               const decisionsRes = await fetch(`/api/decisions/${address}`);
@@ -328,9 +702,7 @@ export default function P2PPage() {
                   addLog('info', 'Crypto Agent: TEE attested ✓');
                 }
               }
-            } catch (err) {
-              // Non-critical, attestation display is optional
-            }
+            } catch (err) {}
           }, 2000);
         } else {
           addLog('info', `Agent spawn failed: ${data.error}`);
@@ -368,11 +740,7 @@ export default function P2PPage() {
       });
 
       addLog('recv', 'OrderLocked');
-      setAppState(prev => ({
-        ...prev,
-        state: 'LOCKED',
-        lockTx: lockTxHash,
-      }));
+      setAppState(prev => ({ ...prev, state: 'LOCKED', lockTx: lockTxHash }));
     }
   }, [lockSuccess, lockTxHash, appState.state, orderRefId, intent, addLog]);
 
@@ -385,19 +753,13 @@ export default function P2PPage() {
     }
   }, [approveError, lockError]);
 
-  const startOrder = async (parsedIntent?: { amount: string; fromCcy: string; toCcy: string }) => {
+  const startOrder = async () => {
     if (!address || !agentStatus) return;
-
-    const currentIntent = parsedIntent || intent;
-    if (parsedIntent) {
-      setIntent({ ...intent, ...parsedIntent });
-    }
 
     const newOrderRefId = `order-${Date.now()}`;
     setOrderRefId(newOrderRefId);
     setAppState({ state: 'BROADCASTING', quotes: [] });
     setAxlLog([]);
-
     addLog('send', 'rfq.get');
 
     try {
@@ -407,10 +769,10 @@ export default function P2PPage() {
         body: JSON.stringify({
           walletAddress: address,
           intent: {
-            fromCurrency: currentIntent.fromCcy,
-            toCurrency: currentIntent.toCcy,
+            fromCurrency: intent.fromCcy,
+            toCurrency: intent.toCcy,
             toChain: '0g',
-            amount: currentIntent.amount,
+            amount: intent.amount,
             rails: [intent.rail],
           },
         }),
@@ -423,7 +785,6 @@ export default function P2PPage() {
       }
 
       const data = await res.json();
-
       if (!data.ok) {
         addLog('info', `RFQ failed: ${data.error}`);
         setAppState(prev => ({ ...prev, state: 'ERROR', error: data.error }));
@@ -437,26 +798,21 @@ export default function P2PPage() {
       const pollQuotes = async () => {
         try {
           const quotesRes = await fetch(`/api/quotes/${data.rfqId}?wallet=${address}`);
-          if (!quotesRes.ok) {
-            addLog('info', `Quote poll failed: ${quotesRes.status}`);
-            return;
-          }
+          if (!quotesRes.ok) return;
           const quotesData = await quotesRes.json();
 
           if (quotesData.quotes?.length > 0) {
             quotesData.quotes.forEach((q: Quote) => {
-              addLog('recv', `quote.sign (${q.rate} ${currentIntent.toCcy}/${currentIntent.fromCcy})`);
+              addLog('recv', `quote.sign (${q.rate} ${intent.toCcy}/${intent.fromCcy})`);
             });
             setAppState(prev => ({ ...prev, quotes: quotesData.quotes, state: 'SELECTING' }));
           } else if (attempts < 10) {
             attempts++;
             setTimeout(pollQuotes, 500);
           } else {
-            addLog('info', 'No quotes received after 10 attempts');
             setAppState(prev => ({ ...prev, state: 'ERROR', error: 'No quotes received' }));
           }
         } catch (err: any) {
-          addLog('info', `Poll error: ${err.message}`);
           if (attempts < 10) {
             attempts++;
             setTimeout(pollQuotes, 500);
@@ -481,11 +837,7 @@ export default function P2PPage() {
       const res = await fetch('/api/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          walletAddress: address,
-          rfqId: appState.rfqId,
-          quoteIndex: index,
-        }),
+        body: JSON.stringify({ walletAddress: address, rfqId: appState.rfqId, quoteIndex: index }),
       });
       const data = await res.json();
 
@@ -538,311 +890,198 @@ export default function P2PPage() {
     }
   };
 
-  const handleChatMessage = (message: string) => {
-    setLastMessage(message);
-    const parsed = parseSwapIntent(message);
-    if (parsed && agentStatus) {
-      startOrder(parsed);
-    }
-  };
-
-  const stateLabel = (s: OrderState) => {
-    const labels: Record<OrderState, string> = {
-      INIT: 'Ready',
-      CONNECTING_AGENTS: 'Connecting Agents',
-      BROADCASTING: 'Broadcasting RFQ',
-      QUOTING: 'Waiting for Quotes',
-      SELECTING: 'Select LP',
-      COMMITTING: 'Committing Order',
-      LOCKED: 'Locked in Escrow',
-      PAYING: 'Processing Payment',
-      RELEASED: 'Complete',
-      ERROR: 'Error',
-    };
-    return labels[s];
-  };
-
+  const reset = () => setAppState({ state: 'INIT', quotes: [] });
   const isProcessing = ['BROADCASTING', 'QUOTING', 'COMMITTING', 'PAYING'].includes(appState.state);
 
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
       {/* Background effects */}
-      <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/5 rounded-full mix-blend-normal filter blur-[128px] animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-indigo-500/5 rounded-full mix-blend-normal filter blur-[128px] animate-pulse delay-700" />
-        <div className="absolute top-1/4 right-1/3 w-64 h-64 bg-cyan-500/5 rounded-full mix-blend-normal filter blur-[96px] animate-pulse delay-1000" />
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-emerald-500/5 rounded-full blur-[150px]" />
+        <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-cyan-500/5 rounded-full blur-[120px]" />
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAwIDEwIEwgNDAgMTAgTSAxMCAwIEwgMTAgNDAgTSAwIDIwIEwgNDAgMjAgTSAyMCAwIEwgMjAgNDAgTSAwIDMwIEwgNDAgMzAgTSAzMCAwIEwgMzAgNDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjAyKSIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2dyaWQpIi8+PC9zdmc+')] opacity-50" />
       </div>
 
       {/* Header */}
       <header className="relative z-50 border-b border-zinc-800/50 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
             <Link href="/" className="text-xl font-display font-bold tracking-tight">Aegis</Link>
             <div className="h-4 w-px bg-zinc-700" />
-            <span className="text-sm text-zinc-500">AI Wallet</span>
+            <span className="text-sm text-zinc-500">P2P Swap</span>
           </div>
-          <div className="flex items-center gap-3">
-            <AgentDropdown agentStatus={agentStatus} />
-            <ConnectWallet />
-          </div>
+          <ConnectWallet />
         </div>
       </header>
 
       {!isConnected ? (
         <main className="relative z-10 flex flex-col items-center justify-center min-h-[80vh] px-6">
-          <motion.div 
+          <motion.div
             className="text-center space-y-6"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 flex items-center justify-center">
+            <div className="w-24 h-24 mx-auto rounded-2xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 flex items-center justify-center border border-emerald-500/20">
               <Wallet className="w-10 h-10 text-emerald-400" />
             </div>
-            <h2 className="text-4xl font-display font-medium">Fiat → Crypto</h2>
-            <p className="text-zinc-400 max-w-md">Connect your wallet to spawn AI agents that negotiate and settle swaps autonomously.</p>
+            <div>
+              <h2 className="text-3xl font-display font-medium mb-2">Fiat → Crypto</h2>
+              <p className="text-zinc-400 max-w-md">Connect your wallet to spawn AI agents that negotiate and settle swaps autonomously.</p>
+            </div>
             <ConnectWallet />
           </motion.div>
         </main>
       ) : (
-        <main className="relative z-10 max-w-6xl mx-auto px-6 py-8 min-h-[calc(100vh-73px)] flex flex-col">
-          <div className="grid lg:grid-cols-5 gap-6 flex-1">
-            {/* Main Chat Area */}
-            <div className="lg:col-span-3 flex flex-col">
-              {appState.state === 'INIT' && (
-                <div className="flex-1 flex items-center justify-center min-h-[60vh]">
-                  <AnimatedAIChat 
-                    onSendMessage={handleChatMessage}
-                    isProcessing={isProcessing}
-                    processingMessage={stateLabel(appState.state)}
-                  />
-                </div>
-              )}
-
-              {/* Quote Selection */}
-              <AnimatePresence>
-                {appState.state === 'SELECTING' && appState.quotes.length > 0 && (
-                  <motion.div 
-                    className="space-y-4"
+        <main className="relative z-10 max-w-7xl mx-auto px-6 py-8">
+          <div className="grid lg:grid-cols-12 gap-6">
+            {/* Left Column - Swap Form */}
+            <div className="lg:col-span-5">
+              <AnimatePresence mode="wait">
+                {appState.state === 'INIT' && (
+                  <motion.div
+                    key="form"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -20 }}
                   >
-                    <div className="text-center mb-6">
-                      <h3 className="text-xl font-medium mb-2">Select a Liquidity Provider</h3>
-                      <p className="text-sm text-zinc-400">
-                        Swapping {intent.amount} {intent.fromCcy} → {intent.toCcy}
-                      </p>
+                    <SwapForm
+                      intent={intent}
+                      setIntent={setIntent}
+                      onSubmit={startOrder}
+                      disabled={isProcessing}
+                      agentStatus={agentStatus}
+                    />
+                  </motion.div>
+                )}
+
+                {appState.state === 'SELECTING' && appState.quotes.length > 0 && (
+                  <motion.div
+                    key="quotes"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="space-y-4"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-lg font-medium">Select Quote</h2>
+                      <span className="text-xs text-zinc-500">{appState.quotes.length} available</span>
                     </div>
                     {appState.quotes.map((q, i) => (
-                      <motion.button
+                      <QuoteCard
                         key={q.quoteId}
-                        onClick={() => selectQuote(q, i)}
-                        className="w-full p-5 bg-zinc-900/50 backdrop-blur rounded-xl border border-zinc-800 hover:border-emerald-500/50 transition-all text-left group"
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.1 }}
-                        whileHover={{ scale: 1.01 }}
-                      >
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <span className="text-2xl font-display text-emerald-400">{q.outputAmount}</span>
-                            <span className="text-lg text-zinc-400 ml-2">{intent.toCcy}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 rounded">Rep: {q.reputation}</span>
-                          </div>
-                        </div>
-                        <div className="flex justify-between text-sm text-zinc-500">
-                          <span>Rate: {q.rate}</span>
-                          <span>Fee: {q.fee}</span>
-                          <span>LP: {q.lpAgent.slice(0, 12)}...</span>
-                        </div>
-                        <ArrowRight className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-600 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
-                      </motion.button>
+                        quote={q}
+                        index={i}
+                        intent={intent}
+                        onSelect={() => selectQuote(q, i)}
+                        selected={appState.selectedQuote?.quoteId === q.quoteId}
+                      />
                     ))}
+                    <button onClick={reset} className="w-full text-sm text-zinc-500 hover:text-white py-2">
+                      Cancel
+                    </button>
                   </motion.div>
                 )}
-              </AnimatePresence>
 
-              {/* Processing States */}
-              <AnimatePresence>
-                {isProcessing && (
-                  <motion.div 
-                    className="flex flex-col items-center justify-center py-16"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                  >
-                    <Loader2 className="w-12 h-12 text-emerald-400 animate-spin mb-4" />
-                    <p className="text-lg">{stateLabel(appState.state)}...</p>
-                    {lastMessage && (
-                      <p className="text-sm text-zinc-500 mt-2">Processing: {lastMessage}</p>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Locked - Ready to Pay */}
-              <AnimatePresence>
                 {appState.state === 'LOCKED' && appState.selectedQuote && (
-                  <motion.div 
-                    className="text-center space-y-6"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
+                  <motion.div
+                    key="locked"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-zinc-800/80 p-6 text-center"
                   >
-                    <div className="p-6 bg-zinc-900/50 backdrop-blur rounded-2xl border border-zinc-800">
-                      <p className="text-sm text-zinc-400 mb-2">You will receive</p>
-                      <p className="text-4xl font-display text-emerald-400 mb-1">{appState.selectedQuote.outputAmount} {intent.toCcy}</p>
-                      <p className="text-sm text-zinc-500">Escrowed on 0G Chain</p>
+                    <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
+                      <Shield className="w-8 h-8 text-emerald-400" />
                     </div>
-                    <motion.button 
+                    <h3 className="text-xl font-medium mb-2">Escrow Locked</h3>
+                    <p className="text-sm text-zinc-400 mb-6">
+                      {appState.selectedQuote.outputAmount} {intent.toCcy} secured
+                    </p>
+                    <motion.button
                       onClick={triggerPayment}
-                      className="w-full bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white font-medium py-4 px-8 rounded-xl transition-all"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      className="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-medium py-4 rounded-xl"
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
                     >
                       Pay {intent.amount} {intent.fromCcy}
                     </motion.button>
                   </motion.div>
                 )}
-              </AnimatePresence>
 
-              {/* Success State */}
-              <AnimatePresence>
                 {appState.state === 'RELEASED' && (
-                  <motion.div 
-                    className="text-center space-y-6"
+                  <motion.div
+                    key="success"
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
+                    className="bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-emerald-500/30 p-6 text-center"
                   >
-                    <div className="w-20 h-20 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center">
-                      <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                    <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
+                      <CheckCircle2 className="w-8 h-8 text-emerald-400" />
                     </div>
-                    <div>
-                      <h3 className="text-2xl font-display mb-2">Swap Complete!</h3>
-                      <p className="text-zinc-400">Your {intent.toCcy} has been released to your wallet</p>
-                    </div>
-                    {appState.releaseTx && (
-                      <a 
-                        href={`https://chainscan-galileo.0g.ai/tx/${appState.releaseTx}`}
-                        target="_blank"
-                        className="inline-flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300"
-                      >
-                        View transaction <ExternalLink className="w-4 h-4" />
-                      </a>
-                    )}
-                    <button 
-                      onClick={() => setAppState({ state: 'INIT', quotes: [] })}
-                      className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
-                    >
+                    <h3 className="text-xl font-medium mb-2">Swap Complete!</h3>
+                    <p className="text-sm text-zinc-400 mb-6">
+                      {appState.selectedQuote?.outputAmount} {intent.toCcy} released to your wallet
+                    </p>
+                    <button onClick={reset} className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
                       New Swap
                     </button>
                   </motion.div>
                 )}
-              </AnimatePresence>
 
-              {/* Error State */}
-              <AnimatePresence>
                 {appState.state === 'ERROR' && (
-                  <motion.div 
-                    className="text-center space-y-6"
+                  <motion.div
+                    key="error"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
+                    className="bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-red-500/30 p-6 text-center"
                   >
-                    <div className="w-20 h-20 mx-auto rounded-full bg-red-500/20 flex items-center justify-center">
-                      <XCircle className="w-10 h-10 text-red-400" />
+                    <div className="w-16 h-16 mx-auto rounded-full bg-red-500/20 flex items-center justify-center mb-4">
+                      <XCircle className="w-8 h-8 text-red-400" />
                     </div>
-                    <div>
-                      <h3 className="text-xl font-medium mb-2">Something went wrong</h3>
-                      <p className="text-sm text-red-400">{appState.error}</p>
-                    </div>
-                    <button 
-                      onClick={() => setAppState({ state: 'INIT', quotes: [] })}
-                      className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
-                    >
+                    <h3 className="text-xl font-medium mb-2">Error</h3>
+                    <p className="text-sm text-red-400 mb-6">{appState.error}</p>
+                    <button onClick={reset} className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm">
                       Try Again
                     </button>
+                  </motion.div>
+                )}
+
+                {isProcessing && (
+                  <motion.div
+                    key="processing"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-zinc-800/80 p-8 text-center"
+                  >
+                    <Loader2 className="w-12 h-12 text-emerald-400 animate-spin mx-auto mb-4" />
+                    <p className="text-lg">
+                      {appState.state === 'BROADCASTING' && 'Broadcasting RFQ...'}
+                      {appState.state === 'QUOTING' && 'Waiting for quotes...'}
+                      {appState.state === 'COMMITTING' && 'Locking escrow...'}
+                      {appState.state === 'PAYING' && 'Processing payment...'}
+                    </p>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
 
-            {/* Side Panel */}
-            <div className="lg:col-span-2 space-y-4 flex flex-col justify-center">
-              {/* Agent Activity */}
-              <div className="p-4 bg-zinc-900/30 backdrop-blur rounded-xl border border-zinc-800/50">
-                <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">Agent Activity</h3>
-                <div className="space-y-1 max-h-48 overflow-y-auto font-mono text-xs">
-                  {axlLog.length === 0 ? (
-                    <p className="text-zinc-600">Waiting for activity...</p>
-                  ) : (
-                    axlLog.map((e, i) => (
-                      <div key={i} className="flex gap-2">
-                        <span className="text-zinc-600 w-14">{new Date(e.ts).toISOString().slice(11, 19)}</span>
-                        <span className={
-                          e.dir === 'send' ? 'text-orange-400 w-8' :
-                          e.dir === 'recv' ? 'text-emerald-400 w-8' :
-                          'text-blue-400 w-8'
-                        }>{e.dir}</span>
-                        <span className="text-zinc-300 truncate">{e.type}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
+            {/* Right Column - Status & Activity */}
+            <div className="lg:col-span-7 space-y-4">
+              <AgentCards agentStatus={agentStatus} />
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <OrderProgress
+                  state={appState.state}
+                  intent={intent}
+                  selectedQuote={appState.selectedQuote}
+                />
+                <AgentActivityLog events={axlLog} />
               </div>
 
-              {/* Status */}
-              <div className="p-4 bg-zinc-900/30 backdrop-blur rounded-xl border border-zinc-800/50">
-                <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">Status</h3>
-                <div className="space-y-2">
-                  {(['INIT', 'BROADCASTING', 'SELECTING', 'LOCKED', 'RELEASED'] as OrderState[]).map((s) => {
-                    const stateOrder = ['INIT', 'BROADCASTING', 'SELECTING', 'LOCKED', 'RELEASED'];
-                    const currentIdx = stateOrder.indexOf(appState.state);
-                    const thisIdx = stateOrder.indexOf(s);
-                    const reached = currentIdx >= thisIdx;
-                    const current = appState.state === s ||
-                      (s === 'BROADCASTING' && ['BROADCASTING', 'QUOTING'].includes(appState.state)) ||
-                      (s === 'SELECTING' && appState.state === 'COMMITTING') ||
-                      (s === 'LOCKED' && appState.state === 'PAYING');
-
-                    return (
-                      <div key={s} className={`flex items-center gap-3 text-sm ${reached ? 'text-white' : 'text-zinc-600'}`}>
-                        <div className={`w-2 h-2 rounded-full transition-colors ${current ? 'bg-emerald-500 animate-pulse' : reached ? 'bg-emerald-500' : 'bg-zinc-700'}`} />
-                        <span>{stateLabel(s)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Transactions */}
-              {(appState.lockTx || appState.releaseTx || appState.evidenceRootHash) && (
-                <div className="p-4 bg-zinc-900/30 backdrop-blur rounded-xl border border-zinc-800/50">
-                  <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-4">Transactions</h3>
-                  <div className="space-y-2">
-                    {appState.lockTx && (
-                      <a href={`https://chainscan-galileo.0g.ai/tx/${appState.lockTx}`} target="_blank" className="block p-3 bg-zinc-800/50 rounded-lg hover:bg-zinc-800 transition-colors">
-                        <div className="text-xs text-zinc-400 mb-1">Lock</div>
-                        <div className="text-xs font-mono truncate">{appState.lockTx}</div>
-                      </a>
-                    )}
-                    {appState.releaseTx && (
-                      <a href={`https://chainscan-galileo.0g.ai/tx/${appState.releaseTx}`} target="_blank" className="block p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors">
-                        <div className="text-xs text-emerald-400 mb-1">Release</div>
-                        <div className="text-xs font-mono truncate">{appState.releaseTx}</div>
-                      </a>
-                    )}
-                    {appState.evidenceRootHash && (
-                      <div className="p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
-                        <div className="text-xs text-purple-400 mb-1">0G Evidence</div>
-                        <div className="text-xs font-mono truncate">{appState.evidenceRootHash}</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-
+              <TransactionLinks
+                lockTx={appState.lockTx}
+                releaseTx={appState.releaseTx}
+                evidenceHash={appState.evidenceRootHash}
+              />
             </div>
           </div>
         </main>
