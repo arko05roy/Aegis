@@ -298,7 +298,8 @@ app.post('/rfq', async (c) => {
 
   try {
     const rfqId = await agentServer.broadcastRfq(walletAddress, intent);
-    return c.json({ ok: true, rfqId });
+    const lpCount = agentServer.getStatus().agents;
+    return c.json({ ok: true, rfqId, broadcastTo: lpCount });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

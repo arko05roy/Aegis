@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import Link from 'next/link';
 import {
-  Wallet, Plus, ArrowRight, ArrowLeft, Sparkles,
-  Shield, Cpu, ExternalLink, Copy, Check
+  Wallet, Plus, ArrowRight, ArrowLeft,
+  Shield, Cpu, Sparkles, Copy, Check
 } from 'lucide-react';
 import { useWalletContext } from '@/context/wallet-context';
 import { WalletCard } from '@/components/wallet/wallet-card';
@@ -20,6 +20,11 @@ export default function WalletsPage() {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    setIsVisible(true);
+  }, []);
 
   const copyAddress = (addr: string) => {
     navigator.clipboard.writeText(addr);
@@ -28,51 +33,78 @@ export default function WalletsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 relative overflow-hidden">
-      {/* Animated background grid */}
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.03)_1px,transparent_1px)] bg-[size:60px_60px] [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_70%)]" />
+    <div className="min-h-screen bg-black relative overflow-hidden">
+      {/* Subtle grid lines - matching landing */}
+      <div className="absolute inset-0 z-[1] overflow-hidden pointer-events-none opacity-20">
+        {[...Array(8)].map((_, i) => (
+          <div
+            key={`h-${i}`}
+            className="absolute h-px bg-white/10"
+            style={{
+              top: `${12.5 * (i + 1)}%`,
+              left: 0,
+              right: 0,
+            }}
+          />
+        ))}
+        {[...Array(12)].map((_, i) => (
+          <div
+            key={`v-${i}`}
+            className="absolute w-px bg-white/10"
+            style={{
+              left: `${8.33 * (i + 1)}%`,
+              top: 0,
+              bottom: 0,
+            }}
+          />
+        ))}
+      </div>
 
-      {/* Glowing orbs */}
-      <div className="absolute top-20 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-20 right-1/4 w-80 h-80 bg-cyan-500/10 rounded-full blur-[100px] pointer-events-none" />
+      {/* Subtle gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black via-transparent to-black/80 pointer-events-none z-[2]" />
 
       {/* Navigation */}
-      <nav className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-zinc-800/50 backdrop-blur-sm">
-        <Link href="/" className="flex items-center gap-2 text-white hover:text-emerald-400 transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm font-medium">Back</span>
+      <nav className="relative z-10 flex items-center justify-between px-6 lg:px-12 h-20">
+        <Link href="/" className="flex items-center gap-3 text-white/70 hover:text-white transition-colors group">
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          <span className="text-sm">Back</span>
         </Link>
 
         <Link href="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
-            <Shield className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-semibold text-lg text-white">Aegis</span>
+          <span className="font-display text-2xl text-white tracking-tight">AEGIS</span>
         </Link>
 
         {isConnected ? (
           <button
             onClick={() => disconnect()}
-            className="text-sm text-zinc-500 hover:text-white transition-colors"
+            className="text-sm text-white/50 hover:text-white transition-colors"
           >
             Disconnect
           </button>
         ) : (
-          <div className="w-20" />
+          <div className="w-24" />
         )}
       </nav>
 
-      <main className="relative z-10 max-w-5xl mx-auto px-6 py-12">
+      <main className="relative z-10 max-w-[1400px] mx-auto px-6 lg:px-12 py-16 lg:py-24">
         {/* Header */}
+        <div className={`mb-8 transition-all duration-700 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}>
+          <span className="inline-flex items-center gap-3 text-sm font-mono text-white/60">
+            <span className="w-8 h-px bg-white/30" />
+            Multi-wallet Management
+          </span>
+        </div>
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-12"
+          transition={{ duration: 0.8 }}
+          className="mb-16"
         >
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
-            Your <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">Wallets</span>
+          <h1 className="text-[clamp(2.5rem,5vw,5rem)] font-display leading-[0.92] tracking-tight text-white mb-6">
+            Your Wallets
           </h1>
-          <p className="text-zinc-500 text-lg max-w-xl mx-auto">
+          <p className="text-white/50 text-lg max-w-xl">
             Manage multiple trading identities. Each wallet gets its own Fiat and Crypto agents.
           </p>
         </motion.div>
@@ -80,27 +112,26 @@ export default function WalletsPage() {
         {/* Not connected state */}
         {!isConnected && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="max-w-md mx-auto"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="max-w-md"
           >
-            <div className="rounded-3xl p-[1px] bg-gradient-to-br from-emerald-500/50 via-zinc-700/50 to-cyan-500/50">
-              <div className="bg-zinc-900 rounded-3xl p-8 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 flex items-center justify-center mx-auto mb-6">
-                  <Wallet className="w-8 h-8 text-emerald-400" />
-                </div>
-                <h2 className="text-xl font-semibold text-white mb-2">Connect Your Wallet</h2>
-                <p className="text-zinc-500 text-sm mb-6">
-                  Connect MetaMask to create and manage your trading wallets
-                </p>
-                <button
-                  onClick={() => connect({ connector: connectors[0] })}
-                  className="w-full bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white font-semibold py-3 px-6 rounded-xl flex items-center justify-center gap-2 transition-all"
-                >
-                  <Wallet className="w-5 h-5" />
-                  Connect MetaMask
-                </button>
+            <div className="border border-white/10 rounded-2xl p-10 bg-white/[0.02] backdrop-blur-sm">
+              <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-8">
+                <Wallet className="w-8 h-8 text-white/70" />
               </div>
+              <h2 className="text-2xl font-display text-white mb-3">Connect Your Wallet</h2>
+              <p className="text-white/50 text-sm mb-8 leading-relaxed">
+                Connect MetaMask to create and manage your trading wallets
+              </p>
+              <button
+                onClick={() => connect({ connector: connectors[0] })}
+                className="w-full bg-white hover:bg-white/90 text-black font-medium py-4 px-6 rounded-full flex items-center justify-center gap-3 transition-all"
+              >
+                <Wallet className="w-5 h-5" />
+                Connect MetaMask
+              </button>
             </div>
           </motion.div>
         )}
@@ -113,30 +144,27 @@ export default function WalletsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="mb-8 p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800/50 backdrop-blur-sm"
+              className="mb-12 p-6 border border-white/10 rounded-2xl bg-white/[0.02]"
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
-                    <img src="/metamask.svg" alt="MetaMask" className="w-6 h-6" onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }} />
-                    <Wallet className="w-5 h-5 text-orange-400" />
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+                    <Wallet className="w-6 h-6 text-orange-400" />
                   </div>
                   <div>
-                    <p className="text-xs text-zinc-500 uppercase tracking-wider">Parent Wallet</p>
-                    <div className="flex items-center gap-2">
-                      <p className="font-mono text-white">
+                    <p className="text-xs text-white/40 uppercase tracking-wider mb-1">Parent Wallet</p>
+                    <div className="flex items-center gap-3">
+                      <p className="font-mono text-white text-lg">
                         {address?.slice(0, 10)}...{address?.slice(-8)}
                       </p>
                       <button
                         onClick={() => copyAddress(address!)}
-                        className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white transition-colors"
+                        className="p-1.5 rounded-lg hover:bg-white/5 text-white/50 hover:text-white transition-colors"
                       >
                         {copiedAddress === address ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <Check className="w-4 h-4 text-emerald-400" />
                         ) : (
-                          <Copy className="w-3.5 h-3.5" />
+                          <Copy className="w-4 h-4" />
                         )}
                       </button>
                     </div>
@@ -150,7 +178,7 @@ export default function WalletsPage() {
             </motion.div>
 
             {/* Wallet grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
               <AnimatePresence mode="popLayout">
                 {wallets.map((wallet, index) => (
                   <WalletCard
@@ -171,15 +199,15 @@ export default function WalletsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: wallets.length * 0.08 + 0.1 }}
                 onClick={() => setShowCreateModal(true)}
-                className="group relative rounded-2xl p-[1px] bg-gradient-to-br from-zinc-700/30 via-zinc-800/30 to-zinc-700/30 hover:from-emerald-500/30 hover:via-cyan-500/20 hover:to-emerald-500/30 transition-all duration-500 min-h-[180px]"
+                className="group relative rounded-2xl border border-white/10 hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.04] transition-all duration-500 min-h-[200px]"
               >
-                <div className="h-full rounded-2xl bg-zinc-900/60 backdrop-blur-sm p-5 flex flex-col items-center justify-center gap-3 transition-all group-hover:bg-zinc-900/80">
-                  <div className="w-14 h-14 rounded-2xl bg-zinc-800 group-hover:bg-gradient-to-br group-hover:from-emerald-500/20 group-hover:to-cyan-500/20 flex items-center justify-center transition-all">
-                    <Plus className="w-7 h-7 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
+                <div className="h-full p-6 flex flex-col items-center justify-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl border border-white/10 group-hover:border-white/20 bg-white/[0.02] flex items-center justify-center transition-all">
+                    <Plus className="w-7 h-7 text-white/40 group-hover:text-white transition-colors" />
                   </div>
                   <div className="text-center">
-                    <p className="font-medium text-zinc-400 group-hover:text-white transition-colors">Add Wallet</p>
-                    <p className="text-xs text-zinc-600 group-hover:text-zinc-500 transition-colors">Create new identity</p>
+                    <p className="font-medium text-white/60 group-hover:text-white transition-colors">Add Wallet</p>
+                    <p className="text-xs text-white/30 group-hover:text-white/50 transition-colors mt-1">Create new identity</p>
                   </div>
                 </div>
               </motion.button>
@@ -191,10 +219,10 @@ export default function WalletsPage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.3 }}
-                className="text-center py-8"
+                className="text-center py-12"
               >
-                <Sparkles className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
-                <p className="text-zinc-500">Create your first wallet to start trading</p>
+                <Sparkles className="w-8 h-8 text-white/30 mx-auto mb-4" />
+                <p className="text-white/50">Create your first wallet to start trading</p>
               </motion.div>
             )}
 
@@ -204,11 +232,11 @@ export default function WalletsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5 }}
-                className="flex justify-center"
+                className="flex justify-start"
               >
                 <Link
                   href="/p2p"
-                  className="group inline-flex items-center gap-3 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white font-semibold py-4 px-8 rounded-2xl transition-all shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30"
+                  className="group inline-flex items-center gap-3 bg-white hover:bg-white/90 text-black font-medium py-4 px-8 rounded-full transition-all"
                 >
                   <span>Continue to Trading</span>
                   <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -218,10 +246,10 @@ export default function WalletsPage() {
 
             {/* Info cards */}
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               transition={{ delay: 0.6 }}
-              className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-16"
+              className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-24 pt-12 border-t border-white/10"
             >
               {[
                 {
@@ -242,14 +270,14 @@ export default function WalletsPage() {
               ].map((item, i) => (
                 <div
                   key={i}
-                  className="flex items-start gap-3 p-4 rounded-xl bg-zinc-900/30 border border-zinc-800/50"
+                  className="flex items-start gap-4"
                 >
-                  <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
-                    <item.icon className="w-5 h-5 text-zinc-400" />
+                  <div className="w-10 h-10 rounded-lg border border-white/10 bg-white/[0.02] flex items-center justify-center flex-shrink-0">
+                    <item.icon className="w-5 h-5 text-white/50" />
                   </div>
                   <div>
                     <h3 className="font-medium text-white text-sm">{item.title}</h3>
-                    <p className="text-xs text-zinc-500 mt-0.5">{item.desc}</p>
+                    <p className="text-xs text-white/40 mt-1 leading-relaxed">{item.desc}</p>
                   </div>
                 </div>
               ))}

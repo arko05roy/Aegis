@@ -866,7 +866,7 @@ export default function P2PPage() {
   }, [approveError, lockError]);
 
   const startOrder = async () => {
-    if (!address || !agentStatus) return;
+    if (!effectiveAddress || !agentStatus) return;
 
     const newOrderRefId = `order-${Date.now()}`;
     setOrderRefId(newOrderRefId);
@@ -879,7 +879,7 @@ export default function P2PPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          walletAddress: address,
+          walletAddress: effectiveAddress,
           intent: {
             fromCurrency: intent.fromCcy,
             toCurrency: intent.toCcy,
@@ -909,7 +909,7 @@ export default function P2PPage() {
       let attempts = 0;
       const pollQuotes = async () => {
         try {
-          const quotesRes = await fetch(`/api/quotes/${data.rfqId}?wallet=${address}`);
+          const quotesRes = await fetch(`/api/quotes/${data.rfqId}?wallet=${effectiveAddress}`);
           if (!quotesRes.ok) return;
           const quotesData = await quotesRes.json();
 
@@ -940,7 +940,7 @@ export default function P2PPage() {
   };
 
   const selectQuote = async (quote: Quote, index: number) => {
-    if (!address) return;
+    if (!effectiveAddress) return;
 
     setAppState(prev => ({ ...prev, selectedQuote: quote, state: 'COMMITTING' }));
     addLog('send', `order.commit → ${quote.lpAgent.slice(0, 12)}...`);
@@ -949,7 +949,7 @@ export default function P2PPage() {
       const res = await fetch('/api/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletAddress: address, rfqId: appState.rfqId, quoteIndex: index }),
+        body: JSON.stringify({ walletAddress: effectiveAddress, rfqId: appState.rfqId, quoteIndex: index }),
       });
       const data = await res.json();
 

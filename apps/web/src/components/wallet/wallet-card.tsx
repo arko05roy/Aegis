@@ -34,48 +34,38 @@ export function WalletCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ delay: index * 0.08, duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.08, duration: 0.5 }}
       onClick={onSelect}
       className={`
-        group relative cursor-pointer rounded-2xl p-[1px] transition-all duration-300
+        group relative cursor-pointer rounded-2xl transition-all duration-300
+        border bg-white/[0.02]
         ${isActive
-          ? 'bg-gradient-to-br from-emerald-400 via-cyan-500 to-emerald-600'
-          : 'bg-gradient-to-br from-zinc-700/50 via-zinc-800/50 to-zinc-700/50 hover:from-zinc-600/60 hover:via-zinc-700/60 hover:to-zinc-600/60'
+          ? 'border-white/30'
+          : 'border-white/10 hover:border-white/20'
         }
       `}
     >
-      <div className={`
-        relative h-full rounded-2xl backdrop-blur-xl p-5
-        ${isActive
-          ? 'bg-zinc-900/90'
-          : 'bg-zinc-900/80'
-        }
-      `}>
-        {/* Glowing orb effect for active card */}
-        {isActive && (
-          <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
-        )}
-
+      <div className="relative h-full rounded-2xl p-6">
         {/* Header row */}
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex items-start justify-between mb-5">
+          <div className="flex items-center gap-4">
             <div className={`
-              relative w-10 h-10 rounded-xl flex items-center justify-center
+              relative w-12 h-12 rounded-xl flex items-center justify-center border
               ${isActive
-                ? 'bg-gradient-to-br from-emerald-500 to-cyan-500'
-                : 'bg-zinc-800 group-hover:bg-zinc-700'
+                ? 'bg-white/10 border-white/30'
+                : 'bg-white/[0.02] border-white/10 group-hover:border-white/20'
               }
               transition-all duration-300
             `}>
-              <Wallet className={`w-5 h-5 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
+              <Wallet className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/50'}`} />
               {isActive && (
                 <motion.div
                   layoutId="activeIndicator"
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full flex items-center justify-center"
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white rounded-full flex items-center justify-center"
                 >
-                  <Check className="w-2.5 h-2.5 text-zinc-900" strokeWidth={3} />
+                  <Check className="w-3 h-3 text-black" strokeWidth={3} />
                 </motion.div>
               )}
             </div>
@@ -89,25 +79,25 @@ export function WalletCard({
                   onBlur={handleSaveLabel}
                   onKeyDown={(e) => e.key === 'Enter' && handleSaveLabel()}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-zinc-800 border border-zinc-600 rounded-lg px-2 py-1 text-sm w-full focus:outline-none focus:border-emerald-500"
+                  className="bg-white/5 border border-white/20 rounded-lg px-3 py-1.5 text-sm w-full text-white focus:outline-none focus:border-white/40"
                 />
               ) : (
-                <h3 className="font-semibold text-white truncate">{wallet.label}</h3>
+                <h3 className="font-medium text-white truncate">{wallet.label}</h3>
               )}
-              <p className="text-xs text-zinc-500 font-mono mt-0.5">
+              <p className="text-xs text-white/40 font-mono mt-1">
                 {wallet.address.slice(0, 6)}...{wallet.address.slice(-4)}
               </p>
             </div>
           </div>
 
           {/* Actions */}
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 setIsEditing(true);
               }}
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+              className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
             >
               <Edit3 className="w-3.5 h-3.5" />
             </button>
@@ -116,7 +106,7 @@ export function WalletCard({
                 e.stopPropagation();
                 onDelete();
               }}
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 transition-colors"
+              className="p-2 rounded-lg bg-white/5 hover:bg-red-500/20 text-white/50 hover:text-red-400 transition-colors"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -125,18 +115,18 @@ export function WalletCard({
 
         {/* Agent status */}
         <div className={`
-          flex items-center gap-2 px-3 py-2 rounded-xl
+          flex items-center gap-3 px-4 py-3 rounded-xl border
           ${wallet.hasAgents
-            ? 'bg-emerald-500/10 border border-emerald-500/20'
-            : 'bg-zinc-800/50 border border-zinc-700/50'
+            ? 'bg-emerald-500/5 border-emerald-500/20'
+            : 'bg-white/[0.02] border-white/10'
           }
         `}>
-          <Cpu className={`w-4 h-4 ${wallet.hasAgents ? 'text-emerald-400' : 'text-zinc-500'}`} />
-          <span className={`text-xs font-medium ${wallet.hasAgents ? 'text-emerald-400' : 'text-zinc-500'}`}>
+          <Cpu className={`w-4 h-4 ${wallet.hasAgents ? 'text-emerald-400' : 'text-white/40'}`} />
+          <span className={`text-xs font-medium ${wallet.hasAgents ? 'text-emerald-400' : 'text-white/40'}`}>
             {wallet.hasAgents ? '2 Agents Active' : 'No Agents'}
           </span>
           {wallet.hasAgents && (
-            <div className="ml-auto flex gap-1">
+            <div className="ml-auto flex gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: '0.2s' }} />
             </div>
@@ -144,7 +134,7 @@ export function WalletCard({
         </div>
 
         {/* Created date */}
-        <p className="text-[10px] text-zinc-600 mt-3 text-right">
+        <p className="text-[10px] text-white/30 mt-4 text-right">
           Created {new Date(wallet.createdAt).toLocaleDateString()}
         </p>
       </div>

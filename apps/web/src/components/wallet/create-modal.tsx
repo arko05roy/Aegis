@@ -36,46 +36,42 @@ export function CreateWalletModal({ isOpen, onClose, onCreate }: CreateWalletMod
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50"
           />
 
           {/* Modal */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md px-4"
           >
-            <div className="relative rounded-3xl p-[1px] bg-gradient-to-br from-emerald-500/50 via-cyan-500/30 to-emerald-500/50">
-              <div className="relative bg-zinc-900 rounded-3xl p-6 overflow-hidden">
-                {/* Decorative elements */}
-                <div className="absolute -top-20 -right-20 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl" />
-                <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl" />
+            <div className="relative border border-white/10 rounded-2xl bg-black overflow-hidden">
+              {/* Close button */}
+              <button
+                onClick={onClose}
+                className="absolute top-4 right-4 p-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
 
-                {/* Close button */}
-                <button
-                  onClick={onClose}
-                  className="absolute top-4 right-4 p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-
+              <div className="p-8">
                 {/* Header */}
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
-                    <Sparkles className="w-6 h-6 text-white" />
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
+                    <Sparkles className="w-6 h-6 text-white/70" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-white">Create Wallet</h2>
-                    <p className="text-sm text-zinc-500">Generate a new agent wallet</p>
+                    <h2 className="text-xl font-display text-white">Create Wallet</h2>
+                    <p className="text-sm text-white/50 mt-1">Generate a new agent wallet</p>
                   </div>
                 </div>
 
                 {/* Form */}
-                <div className="space-y-4 relative z-10">
+                <div className="space-y-5">
                   <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-2">
+                    <label className="block text-sm text-white/50 mb-3">
                       Wallet Label
                     </label>
                     <input
@@ -83,12 +79,12 @@ export function CreateWalletModal({ isOpen, onClose, onCreate }: CreateWalletMod
                       value={label}
                       onChange={(e) => setLabel(e.target.value)}
                       placeholder="e.g., Trading, Savings, DeFi..."
-                      className="w-full bg-zinc-800/50 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/20 transition-all"
+                      className="w-full bg-white/[0.02] border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 transition-all"
                     />
                   </div>
 
-                  <div className="bg-zinc-800/30 rounded-xl p-4 border border-zinc-800">
-                    <p className="text-xs text-zinc-500 leading-relaxed">
+                  <div className="bg-white/[0.02] rounded-xl p-4 border border-white/10">
+                    <p className="text-xs text-white/40 leading-relaxed">
                       A new wallet will be generated with its own private key.
                       Each wallet can have its own Fiat and Crypto agents for trading.
                     </p>
@@ -97,7 +93,7 @@ export function CreateWalletModal({ isOpen, onClose, onCreate }: CreateWalletMod
                   <button
                     onClick={handleCreate}
                     disabled={isCreating}
-                    className="w-full bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white font-semibold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full bg-white hover:bg-white/90 text-black font-medium py-4 px-4 rounded-full flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isCreating ? (
                       <>
