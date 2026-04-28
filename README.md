@@ -193,39 +193,25 @@ The **embedded wallet** is scoped to exactly two functions: `release()` and `exp
 
 ---
 
-## Settlement Flow
+## Complete Settlement Flow
 
-```
-1. Buyer           "swap 100 USD → ETH"           Fiat Agent
-                                                      │
-2. Fiat Agent      RFQ broadcast (AXL)            Crypto Agents
-                                                      │
-3. Crypto Agents   Signed quotes (AXL)            Fiat Agent
-                                                      │
-4. Fiat Agent      Accept best quote              Crypto Agent
-                                                      │
-5. Crypto Agent    Lock tokens + commitment       Escrow Contract
-                                                      │
-   ══════════════════════════════════════════════════════════
-   │  CRYPTO LOCKED  │  RECEIVER COMMITTED ON-CHAIN  │
-   ══════════════════════════════════════════════════════════
-                                                      │
-6. Buyer           Pay fiat                       Bank/PSP
-                                                      │
-7. Bank/PSP        Webhook                        Watcher Agent
-                                                      │
-8. Watcher         Validate HMAC, forward         Attestation Agent
-                                                      │
-9. Attestation     Verify commitment match        (internal)
-                                                      │
-10. Attestation    Pin evidence                   0G Storage
-                                                      │
-11. Attestation    Trigger release                KeeperHub
-                                                      │
-12. KeeperHub      Execute release()              Escrow Contract
-                                                      │
-13. Escrow         Crypto released                Buyer Wallet
-```
+A buyer wants to swap 100 USD for ETH. Here's exactly what happens:
+
+**1. Quote Discovery** — The buyer's Fiat Agent broadcasts a request-for-quote across the AXL mesh. LP Crypto Agents listening on the network respond with signed quotes containing rate, fee, and supported payment rails (UPI, Venmo, bank transfer). The Fiat Agent scores quotes by `(rate × reputation) / fee`, logs the decision to 0G Storage, and commits to the best one.
+
+**2. Escrow Lock** — The winning LP's Crypto Agent locks tokens into the Escrow contract on 0G Galileo. At lock time, the LP commits `keccak256(paymentReceiver)` on-chain — this is the receiver commitment. It's immutable for the life of the order. The LP cannot change payment details after locking.
+
+**3. Fiat Payment** — The buyer sees the LP's payment details (UPI VPA, Venmo handle, bank account) and pays via their banking app. The payment reference includes the order ID for matching.
+
+**4. Webhook Observation** — The LP's bank confirms the payment and fires a webhook to KeeperHub. The Watcher Agent receives this webhook and validates the HMAC signature using timing-safe comparison. But the Watcher cannot release funds — it can only forward the observation to the Attestation Agent over AXL.
+
+**5. Commitment Verification** — The Attestation Agent extracts the payment receiver from the webhook payload and computes its hash. It then reads the receiver commitment from the on-chain escrow and compares. If they don't match, the order fails — preventing bait-and-switch attacks.
+
+**6. Evidence Pinning** — If verification passes, the Attestation Agent pins the full evidence blob (webhook payload, HMAC signature, timestamps) to 0G Storage. This creates an immutable audit trail with a Merkle root for dispute resolution.
+
+**7. Escrow Release** — The Attestation Agent triggers release via KeeperHub. The embedded wallet — scoped to only `release()` and `expire()` — calls the Escrow contract with the evidence hash. Tokens transfer to the buyer's wallet.
+
+**If the buyer never pays:** A scheduled KeeperHub workflow monitors for orders past deadline. After timeout, it calls `expire()` — refunding the LP's tokens and slashing the buyer's anti-grief bond.
 
 ---
 
