@@ -6,26 +6,26 @@ import { Shield, Lock, Eye, FileCheck } from "lucide-react";
 const securityFeatures = [
   {
     icon: Shield,
-    title: "Sandbox isolation",
-    description: "Each user's agents run in isolated microVMs.",
+    title: "Agent isolation",
+    description: "Your agents run in sandboxed microVMs. No shared state. No cross-contamination.",
     image: "/images/isolated.jpg",
   },
   {
     icon: Lock,
-    title: "Passkey custody",
-    description: "WebAuthn keys derive ephemeral signers.",
+    title: "Passkey-only signing",
+    description: "No seed phrases. No private keys to lose. Your passkey IS your wallet.",
     image: "/images/encrypted.jpg",
   },
   {
     icon: Eye,
-    title: "zkTLS proofs",
-    description: "Bank data never leaves your device.",
+    title: "Zero-knowledge proofs",
+    description: "Prove you paid without revealing your bank account. Privacy by default.",
     image: "/images/audit.jpg",
   },
   {
     icon: FileCheck,
-    title: "On-chain escrow",
-    description: "Smart contract holds funds, not us.",
+    title: "Deterministic release",
+    description: "Escrow releases when proof validates. No human approval. No delays.",
     image: "/images/permissions.jpg",
   },
 ];
@@ -71,16 +71,16 @@ export function SecuritySection() {
           <h2 className={`text-6xl md:text-7xl lg:text-[128px] font-display tracking-tight leading-[0.9] mb-12 transition-all duration-1000 ${
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
           }`}>
-            Non-custodial,
+            We can't
             <br />
-            <span className="text-muted-foreground">by architecture.</span>
+            <span className="text-muted-foreground">steal your money.</span>
           </h2>
-          
+
           <div className={`transition-all duration-1000 delay-100 ${
             isVisible ? "opacity-100" : "opacity-0"
           }`}>
             <p className="text-xl text-muted-foreground leading-relaxed max-w-2xl">
-              We never hold your fiat or crypto. User signs each transfer. zkTLS proves payment without exposing bank credentials.
+              Not "we won't" — we literally cannot. No custody means no rug. Smart contracts hold funds. Cryptographic proofs release them. Math, not trust.
             </p>
           </div>
         </div>

@@ -50,13 +50,15 @@ export function CtaSection() {
             <div className="flex flex-col lg:flex-row items-center justify-between gap-12">
               <div className="flex-1">
                 <h2 className="text-6xl md:text-7xl lg:text-[72px] font-display tracking-tight mb-8 leading-[0.95]">
-                  Ready to swap
+                  The gateway to
                   <br />
-                  without custodians?
+                  decentralization
+                  <br />
+                  <span className="text-muted-foreground">is finally decentralized.</span>
                 </h2>
 
                 <p className="text-xl text-muted-foreground mb-12 leading-relaxed max-w-xl">
-                  Type a command. Tap your passkey. Watch your agents settle fiat↔crypto in under 60 seconds.
+                  No KYC forms. No frozen accounts. No 5% fees. Just you, your agents, and cryptographic proof.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-start gap-4">
@@ -81,7 +83,7 @@ export function CtaSection() {
                 </div>
 
                 <p className="text-sm text-muted-foreground mt-8 font-mono">
-                  No KYC • No custody • zkTLS verified
+                  Coinbase can freeze you. We can't.
                 </p>
               </div>
 

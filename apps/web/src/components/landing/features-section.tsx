@@ -5,27 +5,27 @@ import { useEffect, useRef, useState } from "react";
 const features = [
   {
     number: "01",
-    title: "AI Agent Swarm",
-    description: "Your wallet is an agent swarm. A Fiat Agent manages rail credentials, a Crypto Agent handles signing. They negotiate trades autonomously via MCP.",
-    stats: { value: "2", label: "agents per user" },
+    title: "AI Agents, Not Custodians",
+    description: "Your Fiat Agent negotiates with LP agents over encrypted P2P. Your Crypto Agent signs releases. No company in the middle. No one to freeze your funds.",
+    stats: { value: "4", label: "autonomous agents" },
   },
   {
     number: "02",
-    title: "Zero Custody",
-    description: "No custodian holds your funds. User signs each fiat transfer. Passkey-derived ephemeral keys stay in your sandbox. True self-custody.",
-    stats: { value: "0", label: "custody risk" },
+    title: "Escrow, Not Trust",
+    description: "Crypto locks in a smart contract. Fiat payment is proven cryptographically. Release is deterministic. No human can block, delay, or steal your swap.",
+    stats: { value: "0", label: "trust required" },
   },
   {
     number: "03",
-    title: "zkTLS Proof",
-    description: "Fiat payments verified cryptographically against the PSP's own TLS session. Reclaim zkTLS proves you paid without exposing bank data.",
-    stats: { value: "zkTLS", label: "verification" },
+    title: "Proof, Not Promise",
+    description: "We don't ask your bank. We prove it. zkTLS captures the payment confirmation from the PSP's TLS session and verifies it on-chain. Cryptographic certainty.",
+    stats: { value: "zkTLS", label: "verified" },
   },
   {
     number: "04",
-    title: "Multi-Rail Multi-Chain",
-    description: "UPI, Venmo, Revolut from day one. Settle to 0G, Base, or Solana. One interface, all rails, all chains.",
-    stats: { value: "3+", label: "rails & chains" },
+    title: "Any Rail, Any Chain",
+    description: "UPI in India. Venmo in the US. Revolut in Europe. Settle to 0G, Base, or Solana. One protocol. Global reach. No permission needed.",
+    stats: { value: "∞", label: "rails supported" },
   },
 ];
 
@@ -163,16 +163,16 @@ export function FeaturesSection() {
                   isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
                 }`}
               >
-                Autonomous
+                No CEX.
                 <br />
-                <span className="text-muted-foreground">agents.</span>
+                <span className="text-muted-foreground">No custodian.</span>
               </h2>
             </div>
             <div className="lg:col-span-5 lg:pb-4">
               <p className={`text-xl text-muted-foreground leading-relaxed transition-all duration-1000 delay-200 ${
                 isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
               }`}>
-                Replace custodians with AI. Your agents negotiate, verify, and settle fiat↔crypto swaps without human intervention.
+                $50B/year flows through Coinbase, MoonPay, and Binance. They freeze accounts, demand KYC, and take 5%. Aegis replaces them with AI agents and cryptographic proofs.
               </p>
             </div>
           </div>

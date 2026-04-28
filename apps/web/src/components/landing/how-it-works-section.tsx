@@ -5,21 +5,21 @@ import { useEffect, useRef, useState } from "react";
 const steps = [
   {
     number: "01",
-    title: "Request",
-    subtitle: "a swap",
-    description: "Type 'swap 100 USD → ETH' in the chat. Your Fiat Agent broadcasts an RFQ to LP agents across the AXL mesh.",
+    title: "Tell your",
+    subtitle: "agent",
+    description: "\"Swap 100 USD to ETH.\" Your AI agent broadcasts to a network of liquidity providers. No forms. No sign-ups. No waiting.",
   },
   {
     number: "02",
-    title: "Agents",
-    subtitle: "negotiate",
-    description: "LP Crypto Agents reply with signed quotes. Your agent scores them on price, reputation, and rail fit—picks the best.",
+    title: "Best price",
+    subtitle: "wins",
+    description: "LPs compete for your trade in real-time. Your agent picks the best rate automatically. You just watch.",
   },
   {
     number: "03",
-    title: "Pay &",
-    subtitle: "prove",
-    description: "Tap passkey to authorize fiat. zkTLS proof generated from your PSP's TLS session. On-chain escrow releases crypto.",
+    title: "Prove &",
+    subtitle: "receive",
+    description: "Pay via UPI, Venmo, or bank. Cryptographic proof triggers instant release. Crypto hits your wallet in under 60 seconds.",
   },
 ];
 
