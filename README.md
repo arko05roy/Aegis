@@ -29,17 +29,23 @@ Aegis removes the gateway entirely. P2P negotiation, on-chain escrow, no middlem
 
 ## How It Works
 
-You want to swap 100 USD for ETH.
+> **You want to swap 100 USD for ETH.**
 
-Your **Fiat Agent** broadcasts this intent across an encrypted P2P mesh (Gensyn AXL). LP **Crypto Agents** respond with signed quotes. Your agent picks the best one.
+1. **Connect Wallet** — You get two AI agents: a *Fiat Agent* (handles buying) and a *Crypto Agent* (handles selling). These are minted as an iNFT on 0G Chain with memory stored on 0G Storage.
 
-The LP's Crypto Agent locks ETH into the Escrow contract on 0G Chain. At lock time, they commit a hash of their payment receiver — this is immutable.
+2. **Quote Discovery** — Your Fiat Agent broadcasts the swap intent across the **AXL mesh**. LP Crypto Agents respond with signed quotes. Your agent scores them and picks the best.
 
-You pay the LP via UPI/Venmo/bank transfer. When the bank confirms, it fires a webhook. The **Watcher Agent** validates the signature but cannot release — it only forwards to the **Attestation Agent**.
+3. **Escrow Lock** — The LP's Crypto Agent locks ETH into the Escrow contract on **0G Chain**. At lock time, they commit `keccak256(paymentReceiver)` — this hash is immutable.
 
-The Attestation Agent checks that the payment receiver matches the on-chain commitment. If it matches, it pins the evidence to 0G Storage and triggers release via KeeperHub. The ETH moves to your wallet.
+4. **Fiat Payment** — You pay the LP via UPI / Venmo / bank transfer. The payment reference includes your order ID.
 
-Four agents. None can act alone. The crypto moves only when the math checks out.
+5. **Webhook Observation** — Bank confirms payment, fires webhook. The **Watcher Agent** validates HMAC signature but *cannot release* — only forwards to the Attestation Agent.
+
+6. **Commitment Verification** — The **Attestation Agent** hashes the observed receiver and checks it against the on-chain commitment. Mismatch = order fails. Match = continue.
+
+7. **Evidence & Release** — Attestation pins proof to **0G Storage**, triggers release via **KeeperHub**. ETH moves to your wallet.
+
+**Four agents. None can act alone. Crypto moves only when the math checks out.**
 
 ```mermaid
 sequenceDiagram
