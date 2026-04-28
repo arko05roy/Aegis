@@ -19,11 +19,11 @@
 
 ## The Problem
 
-Fifty billion dollars flows through centralized onramps every year. Coinbase custodies your funds. Binance KYCs everything. MoonPay takes 5% and sells your data.
+Every fiat-to-crypto onramp today is centralized. They custody your funds, control the orderbook, and can freeze accounts at will.
 
-**The irony of crypto: the gateway to decentralization is centralization.**
+**The gateway to decentralization is centralization.**
 
-Aegis removes the gateway entirely.
+Aegis removes the gateway entirely. P2P negotiation, on-chain escrow, no middleman.
 
 ---
 
