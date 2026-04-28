@@ -65,7 +65,7 @@ export function CtaSection() {
                     className="bg-foreground hover:bg-foreground/90 text-background px-8 h-14 text-base rounded-full group"
                     asChild
                   >
-                    <Link href="/p2p">
+                    <Link href="/wallets">
                       Start swapping now
                       <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
                     </Link>

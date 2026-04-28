@@ -7,10 +7,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2, XCircle, Loader2, ArrowRight, Wallet, Zap, ExternalLink,
   ChevronDown, Banknote, Coins, ArrowDownUp, Shield, Clock, Activity,
-  Sparkles, Radio, CircleDot, TrendingUp, Star, Eye
+  Sparkles, Radio, CircleDot, TrendingUp, Star, Eye, Plus
 } from 'lucide-react';
 import Link from 'next/link';
 import { ProofTimeline } from '../../components/ui/proof-timeline';
+import { WalletSwitcher } from '@/components/wallet/switcher';
+import { useWalletContext } from '@/context/wallet-context';
+import { CreateWalletModal } from '@/components/wallet/create-modal';
 
 type OrderState = 'INIT' | 'CONNECTING_AGENTS' | 'BROADCASTING' | 'QUOTING' | 'SELECTING' | 'COMMITTING' | 'LOCKED' | 'PAYING' | 'RELEASED' | 'ERROR';
 
@@ -694,11 +697,15 @@ function AgentCards({ agentStatus }: { agentStatus: AgentStatus | null }) {
 
 export default function P2PPage() {
   const { address, isConnected } = useAccount();
+  const { wallets, activeWallet, createWallet } = useWalletContext();
   const [appState, setAppState] = useState<AppState>({ state: 'INIT', quotes: [] });
   const [axlLog, setAxlLog] = useState<AxlEvent[]>([]);
   const [intent, setIntent] = useState({ amount: '100', fromCcy: 'USD', toCcy: 'ETH', rail: 'banksim' });
   const [orderRefId, setOrderRefId] = useState('');
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const effectiveAddress = activeWallet?.address || address;
 
   const { writeContract: approve, data: approveTxHash, error: approveError } = useWriteContract();
   const { writeContract: lock, data: lockTxHash, error: lockError } = useWriteContract();
@@ -711,7 +718,7 @@ export default function P2PPage() {
   }, []);
 
   useEffect(() => {
-    if (!isConnected || !address) {
+    if (!isConnected || !effectiveAddress) {
       setAgentStatus(null);
       return;
     }
@@ -722,7 +729,7 @@ export default function P2PPage() {
         const res = await fetch('/api/agents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ walletAddress: address }),
+          body: JSON.stringify({ walletAddress: effectiveAddress }),
         });
 
         if (!res.ok) {
@@ -739,7 +746,7 @@ export default function P2PPage() {
 
           setTimeout(async () => {
             try {
-              const decisionsRes = await fetch(`/api/decisions/${address}`);
+              const decisionsRes = await fetch(`/api/decisions/${effectiveAddress}`);
               if (decisionsRes.ok) {
                 const decisions = await decisionsRes.json();
                 setAgentStatus(prev => prev ? { ...prev, decisions } : prev);
@@ -761,7 +768,7 @@ export default function P2PPage() {
     };
 
     spawnAgents();
-  }, [isConnected, address, addLog]);
+  }, [isConnected, effectiveAddress, addLog]);
 
   useEffect(() => {
     if (approveSuccess && appState.state === 'COMMITTING' && address && appState.selectedQuote) {
@@ -1030,7 +1037,19 @@ export default function P2PPage() {
             <Link href="/lp/dashboard" className="text-sm text-zinc-400 hover:text-white transition-colors">
               LP Portal
             </Link>
-            <ConnectWallet />
+            <Link href="/wallets" className="text-sm text-zinc-400 hover:text-white transition-colors">
+              Wallets
+            </Link>
+            <WalletSwitcher />
+            {isConnected && (
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="p-2 rounded-full bg-zinc-800/50 hover:bg-emerald-500/20 border border-zinc-700/50 hover:border-emerald-500/30 text-zinc-400 hover:text-emerald-400 transition-all"
+                title="Create new wallet"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -1049,7 +1068,7 @@ export default function P2PPage() {
               <h2 className="text-3xl font-display font-medium mb-2">Fiat → Crypto</h2>
               <p className="text-zinc-400 max-w-md">Connect your wallet to spawn AI agents that negotiate and settle swaps autonomously.</p>
             </div>
-            <ConnectWallet />
+            <WalletSwitcher />
           </motion.div>
         </main>
       ) : (
@@ -1218,6 +1237,14 @@ export default function P2PPage() {
           </div>
         </main>
       )}
+
+      <CreateWalletModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreate={async (label) => {
+          await createWallet(label);
+        }}
+      />
     </div>
   );
 }

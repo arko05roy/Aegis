@@ -68,7 +68,7 @@ export function Navigation() {
             <Link href="/lp/dashboard" className={`transition-all duration-500 ${isScrolled ? "text-xs text-foreground/70 hover:text-foreground" : "text-sm text-white/70 hover:text-white"}`}>
               LP Portal
             </Link>
-            <Link href="/p2p" className={`transition-all duration-500 ${isScrolled ? "text-xs text-foreground/70 hover:text-foreground" : "text-sm text-white/70 hover:text-white"}`}>
+            <Link href="/wallets" className={`transition-all duration-500 ${isScrolled ? "text-xs text-foreground/70 hover:text-foreground" : "text-sm text-white/70 hover:text-white"}`}>
               Launch App
             </Link>
             <Button
@@ -76,7 +76,7 @@ export function Navigation() {
               asChild
               className={`rounded-full transition-all duration-500 ${isScrolled ? "bg-foreground hover:bg-foreground/90 text-background px-4 h-8 text-xs" : "bg-white hover:bg-white/90 text-black px-6"}`}
             >
-              <Link href="/p2p">Start Swapping</Link>
+              <Link href="/wallets">Start Swapping</Link>
             </Button>
           </div>
 
@@ -136,14 +136,14 @@ export function Navigation() {
               onClick={() => setIsMobileMenuOpen(false)}
               asChild
             >
-              <Link href="/p2p">Launch App</Link>
+              <Link href="/wallets">Launch App</Link>
             </Button>
             <Button 
               className="flex-1 bg-foreground text-background rounded-full h-14 text-base"
               onClick={() => setIsMobileMenuOpen(false)}
               asChild
             >
-              <Link href="/p2p">Start Swapping</Link>
+              <Link href="/wallets">Start Swapping</Link>
             </Button>
           </div>
         </div>
