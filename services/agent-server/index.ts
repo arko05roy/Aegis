@@ -315,12 +315,22 @@ app.get('/quotes/:rfqId', async (c) => {
 });
 
 app.post('/commit', async (c) => {
-  const { walletAddress, rfqId, quoteIndex } = await c.req.json();
+  const { walletAddress, rfqId, quoteIndex, orderRefId, rail } = await c.req.json();
   if (!walletAddress || !rfqId) return c.json({ error: 'Missing params' }, 400);
 
   try {
     const quote = await agentServer.commitToQuote(walletAddress, rfqId, quoteIndex ?? 0);
-    return c.json({ ok: true, quote });
+
+    const selectedRail = rail || quote.rails?.[0] || 'banksim';
+    const refId = orderRefId || `order-${Date.now()}`;
+    const fiatDetails = {
+      railType: selectedRail,
+      paymentId: 'arkoroy@okicici',
+      reference: refId,
+      qrPayload: `pay://arkoroy@okicici?amount=${refId}&ref=${refId}`,
+    };
+
+    return c.json({ ok: true, quote, fiatDetails });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

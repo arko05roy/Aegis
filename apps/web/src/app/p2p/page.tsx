@@ -10,7 +10,9 @@ import {
   Sparkles, Radio, CircleDot, TrendingUp, Star, Eye, Plus
 } from 'lucide-react';
 import Link from 'next/link';
+import { QRCodeSVG } from 'qrcode.react';
 import { ProofTimeline } from '../../components/ui/proof-timeline';
+import { ProofPhase } from '../../types/lp';
 import { WalletSwitcher } from '@/components/wallet/switcher';
 import { useWalletContext } from '@/context/wallet-context';
 import { CreateWalletModal } from '@/components/wallet/create-modal';
@@ -27,6 +29,13 @@ interface Quote {
   reputation: number;
 }
 
+interface FiatDetails {
+  railType: string;
+  paymentId: string;
+  reference: string;
+  qrPayload?: string;
+}
+
 interface AppState {
   state: OrderState;
   rfqId?: string;
@@ -36,6 +45,7 @@ interface AppState {
   releaseTx?: string;
   evidenceRootHash?: string;
   error?: string;
+  fiatDetails?: FiatDetails;
 }
 
 interface AxlEvent {
@@ -130,8 +140,7 @@ const CRYPTO_CURRENCIES = [
 ];
 
 const RAILS = [
-  { id: 'banksim', name: 'BankSim', desc: 'Demo rail' },
-  { id: 'upi', name: 'UPI', desc: 'India instant' },
+  { id: 'banksim', name: 'Bank', desc: 'Bank to bank transfer' },
   { id: 'venmo', name: 'Venmo', desc: 'US P2P' },
 ];
 
@@ -611,8 +620,11 @@ function TransactionLinks({ lockTx, releaseTx, evidenceHash }: {
   );
 }
 
-function AgentCards({ agentStatus }: { agentStatus: AgentStatus | null }) {
+function AgentCards({ agentStatus, currentPhase }: { agentStatus: AgentStatus | null; currentPhase: ProofPhase | null }) {
   if (!agentStatus) return null;
+
+  const isWatcherActive = currentPhase === 'PAYMENT_OBSERVED';
+  const isAttestorActive = currentPhase === 'GENERATING_PROOF' || currentPhase === 'PROOF_GENERATED';
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -655,7 +667,7 @@ function AgentCards({ agentStatus }: { agentStatus: AgentStatus | null }) {
       </div>
 
       {/* Watcher Agent (G.14) */}
-      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-purple-800/30 p-3">
+      <div className={`bg-zinc-900/50 backdrop-blur rounded-xl border p-3 ${isWatcherActive ? 'border-purple-500/50' : 'border-purple-800/30'}`}>
         <div className="flex items-center gap-2 mb-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
             <Eye className="w-4 h-4 text-purple-400" />
@@ -663,7 +675,7 @@ function AgentCards({ agentStatus }: { agentStatus: AgentStatus | null }) {
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-medium text-white">Watcher</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+              <span className={`w-1.5 h-1.5 rounded-full ${isWatcherActive ? 'bg-purple-400 animate-pulse' : 'bg-zinc-600'}`} />
             </div>
             <p className="text-[10px] text-zinc-500">Observe</p>
           </div>
@@ -674,7 +686,7 @@ function AgentCards({ agentStatus }: { agentStatus: AgentStatus | null }) {
       </div>
 
       {/* Attestation Agent (G.14) */}
-      <div className="bg-zinc-900/50 backdrop-blur rounded-xl border border-indigo-800/30 p-3">
+      <div className={`bg-zinc-900/50 backdrop-blur rounded-xl border p-3 ${isAttestorActive ? 'border-indigo-500/50' : 'border-indigo-800/30'}`}>
         <div className="flex items-center gap-2 mb-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500/20 to-violet-500/20 flex items-center justify-center">
             <Shield className="w-4 h-4 text-indigo-400" />
@@ -682,7 +694,7 @@ function AgentCards({ agentStatus }: { agentStatus: AgentStatus | null }) {
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-medium text-white">Attestor</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+              <span className={`w-1.5 h-1.5 rounded-full ${isAttestorActive ? 'bg-indigo-400 animate-pulse' : 'bg-zinc-600'}`} />
             </div>
             <p className="text-[10px] text-zinc-500">Prove</p>
           </div>
@@ -704,6 +716,7 @@ export default function P2PPage() {
   const [orderRefId, setOrderRefId] = useState('');
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [currentPhase, setCurrentPhase] = useState<ProofPhase | null>(null);
 
   const effectiveAddress = activeWallet?.address || address;
 
@@ -949,12 +962,27 @@ export default function P2PPage() {
       const res = await fetch('/api/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletAddress: effectiveAddress, rfqId: appState.rfqId, quoteIndex: index }),
+        body: JSON.stringify({
+          walletAddress: effectiveAddress,
+          rfqId: appState.rfqId,
+          quoteIndex: index,
+          orderRefId,
+          rail: intent.rail,
+        }),
       });
       const data = await res.json();
 
       if (data.ok) {
         addLog('recv', 'fiat.details');
+
+        const fiatDetails: FiatDetails = data.fiatDetails || {
+          railType: intent.rail,
+          paymentId: 'arkoroy@okicici',
+          reference: orderRefId,
+          qrPayload: `pay://arkoroy@okicici?amount=${intent.amount}&ref=${orderRefId}`,
+        };
+        setAppState(prev => ({ ...prev, fiatDetails }));
+
         addLog('send', 'token.approve');
         const tokenAmount = parseUnits(quote.outputAmount, 18);
         approve({
@@ -1127,23 +1155,79 @@ export default function P2PPage() {
                     key="locked"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-zinc-800/80 p-6 text-center"
+                    className="bg-zinc-900/80 backdrop-blur-xl rounded-2xl border border-zinc-800/80 p-6"
                   >
-                    <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
-                      <Shield className="w-8 h-8 text-emerald-400" />
+                    <div className="text-center mb-6">
+                      <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center mb-4">
+                        <Shield className="w-8 h-8 text-emerald-400" />
+                      </div>
+                      <h3 className="text-xl font-medium mb-2">Escrow Locked</h3>
+                      <p className="text-sm text-zinc-400">
+                        {appState.selectedQuote.outputAmount} {intent.toCcy} secured
+                      </p>
                     </div>
-                    <h3 className="text-xl font-medium mb-2">Escrow Locked</h3>
-                    <p className="text-sm text-zinc-400 mb-6">
-                      {appState.selectedQuote.outputAmount} {intent.toCcy} secured
-                    </p>
+
+                    {appState.fiatDetails && (
+                      <div className="space-y-4 mb-6">
+                        <div className="text-xs text-zinc-500 uppercase tracking-wider">Payment Instructions</div>
+
+                        {appState.fiatDetails.qrPayload && (
+                          <div className="bg-white p-4 rounded-xl mx-auto w-fit">
+                            <QRCodeSVG
+                              value={appState.fiatDetails.qrPayload}
+                              size={128}
+                              level="M"
+                              includeMargin={false}
+                            />
+                          </div>
+                        )}
+
+                        <div className="space-y-3">
+                          <div className="bg-zinc-800/50 rounded-lg p-3">
+                            <div className="text-xs text-zinc-500 mb-1">Send to</div>
+                            <div className="flex items-center justify-between">
+                              <code className="text-sm text-white font-mono">{appState.fiatDetails.paymentId}</code>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(appState.fiatDetails!.paymentId)}
+                                className="text-xs text-emerald-400 hover:text-emerald-300"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="bg-zinc-800/50 rounded-lg p-3">
+                            <div className="text-xs text-zinc-500 mb-1">Include Reference</div>
+                            <div className="flex items-center justify-between">
+                              <code className="text-sm text-white font-mono truncate max-w-[200px]">{appState.fiatDetails.reference}</code>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(appState.fiatDetails!.reference)}
+                                className="text-xs text-emerald-400 hover:text-emerald-300 shrink-0 ml-2"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="bg-zinc-800/50 rounded-lg p-3">
+                            <div className="text-xs text-zinc-500 mb-1">Amount</div>
+                            <div className="text-lg font-medium text-white">{intent.amount} {intent.fromCcy}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <motion.button
                       onClick={triggerPayment}
                       className="w-full bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-medium py-4 rounded-xl"
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.99 }}
                     >
-                      Pay {intent.amount} {intent.fromCcy}
+                      I've Paid {intent.amount} {intent.fromCcy}
                     </motion.button>
+                    <p className="text-xs text-zinc-500 text-center mt-3">
+                      Click after completing payment via {appState.fiatDetails?.railType || intent.rail}
+                    </p>
                   </motion.div>
                 )}
 
@@ -1206,7 +1290,7 @@ export default function P2PPage() {
 
             {/* Right Column - Status & Activity */}
             <div className="lg:col-span-7 space-y-4">
-              <AgentCards agentStatus={agentStatus} />
+              <AgentCards agentStatus={agentStatus} currentPhase={currentPhase} />
 
               <div className="grid md:grid-cols-2 gap-4">
                 <OrderProgress
@@ -1230,7 +1314,7 @@ export default function P2PPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
                 >
-                  <ProofTimeline orderId={orderRefId} />
+                  <ProofTimeline orderId={orderRefId} onPhaseChange={setCurrentPhase} />
                 </motion.div>
               )}
             </div>
