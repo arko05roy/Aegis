@@ -1,9 +1,10 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Check, Trash2, Edit3, Cpu, Wallet } from 'lucide-react';
+import { Check, Trash2, Edit3, Cpu, Wallet, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import type { DerivedWallet } from '@/context/wallet-context';
+import { INFTBadge } from '@/components/ui/inft-badge';
 
 interface WalletCardProps {
   wallet: DerivedWallet;
@@ -132,6 +133,20 @@ export function WalletCard({
             </div>
           )}
         </div>
+
+        {/* iNFT Badges */}
+        {wallet.inft && (
+          <div className="mt-3 p-3 rounded-xl border border-purple-500/20 bg-purple-500/5">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <span className="text-[10px] font-mono text-purple-400 uppercase tracking-wider">iNFTs (ERC-7857)</span>
+            </div>
+            <div className="flex gap-2">
+              <INFTBadge tokenId={wallet.inft.fiatTokenId} agentType="fiat" compact />
+              <INFTBadge tokenId={wallet.inft.cryptoTokenId} agentType="crypto" compact />
+            </div>
+          </div>
+        )}
 
         {/* Created date */}
         <p className="text-[10px] text-white/30 mt-4 text-right">

@@ -66,10 +66,17 @@ interface AgentDecisions {
   crypto: { agentName: string; attestation: AgentAttestation | null; decisions: any[]; memoryHash: string | null };
 }
 
+interface INFTInfo {
+  fiatTokenId: string;
+  cryptoTokenId: string;
+  txHash: string;
+}
+
 interface AgentStatus {
   fiatPubkey: string;
   cryptoPubkey: string;
   decisions?: AgentDecisions;
+  inft?: INFTInfo;
 }
 
 const ESCROW_ADDRESS = '0xeAD29cBfAb93ed51808D65954Dd1b3cDDaDA1348' as const;
@@ -689,8 +696,8 @@ function AgentCards({ agentStatus, currentPhase }: { agentStatus: AgentStatus | 
   const isAttestorActive = currentPhase === 'GENERATING_PROOF' || currentPhase === 'PROOF_GENERATED';
 
   const agents = [
-    { name: 'Fiat', desc: 'Rails', icon: Banknote, color: 'amber', key: agentStatus.fiatPubkey, active: true },
-    { name: 'Crypto', desc: 'Signer', icon: Coins, color: 'cyan', key: agentStatus.cryptoPubkey, active: true },
+    { name: 'Fiat', desc: 'Rails', icon: Banknote, color: 'amber', key: agentStatus.fiatPubkey, active: true, tokenId: agentStatus.inft?.fiatTokenId },
+    { name: 'Crypto', desc: 'Signer', icon: Coins, color: 'cyan', key: agentStatus.cryptoPubkey, active: true, tokenId: agentStatus.inft?.cryptoTokenId },
     { name: 'Watcher', desc: 'Observe', icon: Eye, color: 'purple', key: agentStatus.fiatPubkey ? `w:${agentStatus.fiatPubkey.slice(2, 16)}` : null, active: isWatcherActive },
     { name: 'Attestor', desc: 'Prove', icon: Shield, color: 'indigo', key: agentStatus.cryptoPubkey ? `a:${agentStatus.cryptoPubkey.slice(2, 16)}` : null, active: isAttestorActive },
   ];
@@ -723,9 +730,16 @@ function AgentCards({ agentStatus, currentPhase }: { agentStatus: AgentStatus | 
                 <span className="text-[9px] font-mono text-muted-foreground">{agent.desc}</span>
               </div>
             </div>
-            <code className="text-[8px] text-foreground/40 bg-foreground/5 px-1.5 py-0.5 font-mono block truncate">
-              {agent.key ? `${agent.key.slice(0, 12)}...` : 'loading...'}
-            </code>
+            <div className="flex items-center gap-1.5">
+              <code className="text-[8px] text-foreground/40 bg-foreground/5 px-1.5 py-0.5 font-mono truncate">
+                {agent.key ? `${agent.key.slice(0, 12)}...` : 'loading...'}
+              </code>
+              {agent.tokenId && (
+                <span className="text-[8px] px-1.5 py-0.5 bg-purple-500/20 text-purple-400 font-mono border border-purple-500/30">
+                  iNFT #{agent.tokenId}
+                </span>
+              )}
+            </div>
           </div>
         );
       })}
@@ -735,7 +749,7 @@ function AgentCards({ agentStatus, currentPhase }: { agentStatus: AgentStatus | 
 
 export default function P2PPage() {
   const { address, isConnected } = useAccount();
-  const { wallets, activeWallet, createWallet } = useWalletContext();
+  const { wallets, activeWallet, createWallet, updateINFT } = useWalletContext();
   const [appState, setAppState] = useState<AppState>({ state: 'INIT', quotes: [] });
   const [axlLog, setAxlLog] = useState<AxlEvent[]>([]);
   const [intent, setIntent] = useState({ amount: '100', fromCcy: 'USD', toCcy: 'ETH', rail: 'banksim' });
@@ -783,10 +797,21 @@ export default function P2PPage() {
 
         const data = await res.json();
         if (data.ok) {
-          const status: AgentStatus = { fiatPubkey: data.fiatPubkey, cryptoPubkey: data.cryptoPubkey };
+          const status: AgentStatus = {
+            fiatPubkey: data.fiatPubkey,
+            cryptoPubkey: data.cryptoPubkey,
+            inft: data.inft || undefined,
+          };
           setAgentStatus(status);
           addLog('info', `Fiat Agent: ${data.fiatPubkey?.slice(0, 12)}...`);
           addLog('info', `Crypto Agent: ${data.cryptoPubkey?.slice(0, 12)}...`);
+          if (data.inft) {
+            addLog('info', `iNFT minted: #${data.inft.fiatTokenId}, #${data.inft.cryptoTokenId}`);
+            // Save iNFT to wallet context
+            if (activeWallet) {
+              updateINFT(activeWallet.id, data.inft);
+            }
+          }
 
           setTimeout(async () => {
             try {

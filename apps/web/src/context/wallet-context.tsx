@@ -4,6 +4,12 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { useAccount } from 'wagmi';
 import { Wallet } from 'ethers';
 
+export interface INFTInfo {
+  fiatTokenId: string;
+  cryptoTokenId: string;
+  txHash: string;
+}
+
 export interface DerivedWallet {
   id: string;
   address: string;
@@ -12,6 +18,7 @@ export interface DerivedWallet {
   createdAt: number;
   parentAddress: string;
   hasAgents: boolean;
+  inft?: INFTInfo;
 }
 
 interface WalletContextValue {
@@ -22,6 +29,7 @@ interface WalletContextValue {
   selectWallet: (id: string) => void;
   deleteWallet: (id: string) => Promise<void>;
   updateLabel: (id: string, label: string) => void;
+  updateINFT: (id: string, inft: INFTInfo) => void;
   refreshWallets: () => Promise<void>;
 }
 
@@ -142,6 +150,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     saveWallets(updated);
   }, [wallets, saveWallets]);
 
+  const updateINFT = useCallback((id: string, inft: INFTInfo) => {
+    const updated = wallets.map(w => w.id === id ? { ...w, inft, hasAgents: true } : w);
+    setWallets(updated);
+    saveWallets(updated);
+  }, [wallets, saveWallets]);
+
   const refreshWallets = useCallback(async () => {
     loadWallets();
   }, [loadWallets]);
@@ -158,6 +172,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         selectWallet,
         deleteWallet,
         updateLabel,
+        updateINFT,
         refreshWallets,
       }}
     >

@@ -241,11 +241,13 @@ This prevents bait-and-switch attacks where LPs show fake payment details and cl
 
 ## Deployed Contracts
 
-| Contract | 0G Galileo |
-|----------|------------|
-| Escrow | `0x31da867c6c12ecebbb738d97198792901431e228` |
-| AgentRegistry | `0x98efa762eda5fb0c3ba02296c583a5a542c66c8b` |
-| RailRegistry | `0x8c7ffc95fcd2b9dfb48272a0ceb6f54e7ce77b14` |
+| Contract | 0G Galileo | Description |
+|----------|------------|-------------|
+| Escrow | `0xeAD29cBfAb93ed51808D65954Dd1b3cDDaDA1348` | Holds locked crypto during settlement |
+| AgentRegistry | `0x2E124DEaeD3Ba3b063356F9b45617d862e4b9dB5` | Registers agent pubkeys on-chain |
+| RailRegistry | `0x0a22b6e2f0ac6cDA83C04B1Ba33aAc8e9Df6aed7` | Payment rail configuration |
+| AgentINFT (ERC-7857) | `0xBf173825A08a98a0288923d00919daC13C94C70A` | Tokenizes agents as iNFTs |
+| TestERC20 | `0x5F2577675beD125794FDfc44940b62D60BF00F81` | Test token for escrow |
 
 ---
 
@@ -254,7 +256,7 @@ This prevents bait-and-switch attacks where LPs show fake payment details and cl
 ```bash
 git clone https://github.com/arko05roy/Aegis.git && cd Aegis
 pnpm install
-cp .env.example .env  # add PRIVATE_KEY
+cp .env.example .env  # add PRIVATE_KEY, INFT_CONTRACT_ADDRESS
 
 # Start AXL nodes
 cd services/axl-node

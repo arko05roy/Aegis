@@ -10,17 +10,24 @@ import { CryptoAgent } from '../../agents/crypto-agent';
 import { ZeroGStorage } from '../../zerog/storage/client';
 import { ZeroGCompute } from '../../zerog/compute/client';
 import { AXLBridge } from '../../protocol/axl/bridge';
+import { INFTClient, MintResult } from '../../contracts/src/inft-client';
 
 const PORT = parseInt(process.env.AGENT_SERVER_PORT || '4002');
 const PRIVATE_KEY = process.env.PRIVATE_KEY!;
 const RPC_URL = process.env.ZEROG_TESTNET_RPC || 'https://evmrpc-testnet.0g.ai';
 const WEBHOOK_URL = process.env.WEBHOOK_RECEIVER_URL || 'http://127.0.0.1:4001/webhook/payment';
+const INFT_CONTRACT = process.env.INFT_CONTRACT_ADDRESS || '';
 
 interface AgentPair {
   fiat: FiatAgent;
   crypto: CryptoAgent;
   walletAddress: string;
   createdAt: number;
+  inft?: {
+    fiatTokenId: bigint;
+    cryptoTokenId: bigint;
+    txHash: string;
+  };
 }
 
 interface RfqRecord {
@@ -36,12 +43,17 @@ class AgentServer {
   private storage: ZeroGStorage;
   private compute: ZeroGCompute;
   private axl: AXLBridge;
+  private inftClient: INFTClient | null = null;
   private computeInitialized = false;
 
   constructor() {
     this.storage = new ZeroGStorage(PRIVATE_KEY);
     this.compute = new ZeroGCompute();
     this.axl = new AXLBridge();
+    if (INFT_CONTRACT) {
+      this.inftClient = new INFTClient(INFT_CONTRACT, PRIVATE_KEY, RPC_URL);
+      console.log(`[AgentServer] iNFT contract: ${INFT_CONTRACT}`);
+    }
   }
 
   async initialize() {
@@ -108,10 +120,34 @@ class AgentServer {
     crypto.start().catch(err => console.error('[CryptoAgent] Start error:', err));
 
     const pair: AgentPair = { fiat, crypto, walletAddress: key, createdAt: Date.now() };
+
+    // Mint iNFTs for the agent pair
+    if (this.inftClient) {
+      try {
+        const fiatPubkey = await fiat.getAXLPublicKey();
+        const cryptoPubkey = await crypto.getAXLPublicKey();
+        const mintResult = await this.inftClient.mintAgentPair(
+          walletAddress,
+          walletAddress,
+          fiatPubkey,
+          cryptoPubkey
+        );
+        pair.inft = mintResult;
+        console.log(`[AgentServer] Minted iNFTs: fiat=#${mintResult.fiatTokenId}, crypto=#${mintResult.cryptoTokenId}`);
+      } catch (err: any) {
+        console.warn('[AgentServer] iNFT mint failed:', err.message?.slice(0, 80));
+      }
+    }
+
     this.agents.set(key, pair);
 
     // Log to 0G Storage
-    await this.logEvent('agent.created', { walletAddress: key });
+    const inftLog = pair.inft ? {
+      fiatTokenId: pair.inft.fiatTokenId.toString(),
+      cryptoTokenId: pair.inft.cryptoTokenId.toString(),
+      txHash: pair.inft.txHash,
+    } : null;
+    await this.logEvent('agent.created', { walletAddress: key, inft: inftLog });
 
     return pair;
   }
@@ -237,9 +273,25 @@ class AgentServer {
       result.push({
         walletAddress: addr,
         createdAt: pair.createdAt,
+        inft: pair.inft ? {
+          fiatTokenId: pair.inft.fiatTokenId.toString(),
+          cryptoTokenId: pair.inft.cryptoTokenId.toString(),
+        } : null,
       });
     });
     return result;
+  }
+
+  async getINFTMetadata(tokenId: string) {
+    if (!this.inftClient) return null;
+    try {
+      const meta = await this.inftClient.getAgentMetadata(BigInt(tokenId));
+      const data = await this.inftClient.getIntelligentData(BigInt(tokenId));
+      const uri = await this.inftClient.getTokenURI(BigInt(tokenId));
+      return { metadata: meta, intelligentData: data, tokenURI: uri };
+    } catch (err) {
+      return null;
+    }
   }
 
   getDecisions(walletAddress: string): { fiat: any; crypto: any } | null {
@@ -282,6 +334,11 @@ app.post('/agents', async (c) => {
       walletAddress,
       fiatPubkey: await pair.fiat.getAXLPublicKey(),
       cryptoPubkey: await pair.crypto.getAXLPublicKey(),
+      inft: pair.inft ? {
+        fiatTokenId: pair.inft.fiatTokenId.toString(),
+        cryptoTokenId: pair.inft.cryptoTokenId.toString(),
+        txHash: pair.inft.txHash,
+      } : null,
     });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -349,6 +406,15 @@ app.get('/decisions/:walletAddress', (c) => {
     return c.json({ error: 'No agents found for wallet' }, 404);
   }
   return c.json(decisions);
+});
+
+app.get('/inft/:tokenId', async (c) => {
+  const tokenId = c.req.param('tokenId');
+  const data = await agentServer.getINFTMetadata(tokenId);
+  if (!data) {
+    return c.json({ error: 'iNFT not found or contract not configured' }, 404);
+  }
+  return c.json(data);
 });
 
 // Start
