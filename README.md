@@ -29,11 +29,25 @@ Aegis removes the gateway entirely. P2P negotiation, on-chain escrow, no middlem
 
 ## How It Works
 
-When you connect to Aegis, you get a wallet with two AI agents attached. A **Fiat Agent** handles buying — it broadcasts your swap intent, collects quotes from liquidity providers, scores them, and commits to the best one. A **Crypto Agent** handles selling — it manages your liquidity, responds to quote requests, and locks tokens into escrow.
+### Your Wallet, Your Agents
 
-These agents negotiate over **Gensyn AXL**, an encrypted P2P mesh. No central server holds an orderbook. An LP in India and a buyer in Germany find each other through mesh routing and settle on-chain without either party controlling the communication layer.
+Connect to Aegis and you get two AI agents attached to your wallet:
 
-When a buyer pays fiat, two more agents handle settlement. The **Watcher Agent** observes the bank webhook and validates the signature — but it cannot release funds, only forward observations. The **Attestation Agent** verifies the payment matches the on-chain commitment, pins evidence to storage, and triggers release. Neither agent can act alone.
+- **Fiat Agent** — broadcasts swap intent, collects quotes, scores LPs, commits to the best one
+- **Crypto Agent** — manages liquidity, responds to quote requests, locks tokens into escrow
+
+### P2P Negotiation
+
+Agents negotiate over **Gensyn AXL**, an encrypted mesh. No central server, no orderbook. An LP in India and a buyer in Germany find each other through mesh routing and settle on-chain.
+
+### Trust-Minimized Settlement
+
+When a buyer pays fiat, two more agents handle release:
+
+- **Watcher Agent** — observes bank webhook, validates signature, but *cannot release* — only forwards
+- **Attestation Agent** — verifies payment matches on-chain commitment, pins evidence, triggers release
+
+Neither agent can act alone. Compromise one and you still can't steal funds.
 
 ```mermaid
 sequenceDiagram
