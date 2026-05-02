@@ -5,7 +5,7 @@
 <h1 align="center">Aegis</h1>
 
 <p align="center">
-  <strong>A Peer-to-Peer Fiat-to-Crypto Onramp</strong><br/>
+  <strong>A Decentralised Peer-to-Peer Fiat-to-Crypto Onramp</strong><br/>
   Autonomous agents. No custodians. No central coordinator.
 </p>
 
@@ -27,7 +27,7 @@
 
 ## Overview
 
-Aegis is a peer-to-peer fiat-to-crypto onramp powered by a multi-agent system. It coordinates real-world fiat-to-crypto settlement without a central operator. Four autonomous agents discover each other peer-to-peer, negotiate quotes, verify off-chain payments, and trigger on-chain settlement — each constrained so that **no single agent can move funds alone**.
+Aegis is a decentralised peer-to-peer fiat-to-crypto onramp powered by a multi-agent system. It coordinates real-world fiat-to-crypto settlement without a central operator. Four autonomous agents discover each other peer-to-peer, negotiate quotes, verify off-chain payments, and trigger on-chain settlement — each constrained so that **no single agent can move funds alone**.
 
 - **AXL** — peer-to-peer communication layer
 - **0G** — identity, memory, and verification
@@ -43,17 +43,6 @@ Every fiat-to-crypto onramp today is centralized. They custody funds, control li
 
 Aegis removes that gateway by replacing operators with verifiable agent coordination and constrained execution.
 
-```text
-   ┌──────────────────┐         ┌──────────────────┐
-   │  Centralized     │         │      Aegis       │
-   │     Onramp       │         │   (P2P Onramp)   │
-   ├──────────────────┤         ├──────────────────┤
-   │  Custodian holds │         │  Escrow holds    │
-   │       funds      │   vs.   │       funds      │
-   │  Operator routes │         │  Agents route    │
-   │  Can freeze you  │         │  No one can      │
-   └──────────────────┘         └──────────────────┘
-```
 
 ---
 
