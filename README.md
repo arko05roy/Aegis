@@ -29,6 +29,8 @@
 
 Aegis is a decentralised peer-to-peer fiat-to-crypto onramp powered by a multi-agent system. It coordinates real-world fiat-to-crypto settlement without a central operator. Four autonomous agents discover each other peer-to-peer, negotiate quotes, verify off-chain payments, and trigger on-chain settlement — each constrained so that **no single agent can move funds alone**.
 
+Aegis replaces centralized onramps with autonomous agents coordinating real-world settlement — without any trusted intermediary.
+
 - **AXL** — peer-to-peer communication layer
 - **0G** — identity, memory, and verification
 - **KeeperHub** — bounded execution boundary
@@ -151,6 +153,7 @@ flowchart LR
 | **0G Compute** | Agent binaries attested via TEE to ensure canonical, untampered execution |
 
 Agents improve over time by learning which LPs perform reliably and which quotes succeed.
+Agents persist history and continuously improve quote selection and counterparty reliability using 0G Storage-backed memory.
 
 ### Gensyn AXL — Coordination Layer
 
