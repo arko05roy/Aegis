@@ -5,7 +5,7 @@
 <h1 align="center">Aegis</h1>
 
 <p align="center">
-  <strong>A Peer-to-Peer Fiat-to-Crypto Coordination System</strong><br/>
+  <strong>A Peer-to-Peer Fiat-to-Crypto Onramp</strong><br/>
   Autonomous agents. No custodians. No central coordinator.
 </p>
 
@@ -13,308 +13,236 @@
   <img src="https://img.shields.io/badge/0G-Storage%20%2B%20Compute%20%2B%20Chain-00D4AA?style=flat-square" alt="0G" />
   <img src="https://img.shields.io/badge/Gensyn-AXL%20Mesh-7C3AED?style=flat-square" alt="AXL" />
   <img src="https://img.shields.io/badge/KeeperHub-Execution-FF6B35?style=flat-square" alt="KeeperHub" />
+  <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT" />
+</p>
+
+<p align="center">
+  <a href="https://aegis-ten-hazel.vercel.app">Live Demo</a> ·
+  <a href="#how-it-works">How It Works</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#local-development">Run Locally</a>
 </p>
 
 ---
 
-## What is Aegis?
+## Overview
 
-Aegis is a multi-agent system where autonomous agents coordinate real-world fiat-to-crypto settlement — without any central operator.
+Aegis is a peer-to-peer fiat-to-crypto onramp powered by a multi-agent system. It coordinates real-world fiat-to-crypto settlement without a central operator. Four autonomous agents discover each other peer-to-peer, negotiate quotes, verify off-chain payments, and trigger on-chain settlement — each constrained so that **no single agent can move funds alone**.
 
-Agents discover each other peer-to-peer, negotiate quotes, verify real-world payments, and trigger on-chain settlement — using:
-
-* **AXL** → communication layer
-* **0G** → identity, memory, and verification
-* **KeeperHub** → execution boundary
-
-**Four agents. None can act alone. Crypto moves only when the math checks out.**
+- **AXL** — peer-to-peer communication layer
+- **0G** — identity, memory, and verification
+- **KeeperHub** — bounded execution boundary
 
 ---
 
 ## The Problem
 
-Every fiat-to-crypto onramp today is centralized.
+Every fiat-to-crypto onramp today is centralized. They custody funds, control liquidity, and can freeze accounts.
 
-They:
+> **The gateway to decentralization is still centralized.**
 
-* custody your funds
-* control liquidity
-* can freeze accounts
+Aegis removes that gateway by replacing operators with verifiable agent coordination and constrained execution.
 
-**The gateway to decentralization is still centralized.**
-
-Aegis removes that gateway entirely.
-
----
-
-## Why Aegis Matters
-
-* Onramps are the last major centralized choke point in crypto
-* Existing systems require trust in operators
-* Autonomous agents can coordinate — but cannot safely execute
-
-**Aegis replaces operators with verifiable agent coordination + constrained execution.**
+```text
+   ┌──────────────────┐         ┌──────────────────┐
+   │  Centralized     │         │      Aegis       │
+   │     Onramp       │         │   (P2P Onramp)   │
+   ├──────────────────┤         ├──────────────────┤
+   │  Custodian holds │         │  Escrow holds    │
+   │       funds      │   vs.   │       funds      │
+   │  Operator routes │         │  Agents route    │
+   │  Can freeze you  │         │  No one can      │
+   └──────────────────┘         └──────────────────┘
+```
 
 ---
 
 ## How It Works
 
-> **You want to swap 100 USD → ETH**
+> Scenario: you want to swap **100 USD → ETH**.
 
-1. **Connect Wallet**
-   You get two agents:
+1. **Connect Wallet** — you receive two agents (Fiat + Crypto), minted as iNFTs (ERC-7857) on 0G Chain with persistent memory on 0G Storage.
+2. **Quote Discovery** — your Fiat Agent broadcasts an RFQ across the AXL mesh; LP Crypto Agents reply with signed quotes; the best is selected deterministically.
+3. **Escrow Lock** — the LP locks ETH into escrow and commits `keccak256(paymentReceiver)`. The receiver commitment is immutable.
+4. **Fiat Payment** — you pay via UPI / bank transfer.
+5. **Webhook Observation** — the Watcher Agent validates the HMAC and forwards the observation. It **cannot execute**.
+6. **Verification** — the Attestation Agent hashes the observed receiver and compares it to the on-chain commitment.
+7. **Evidence + Execution** — proof is pinned to 0G Storage; KeeperHub executes `release()`; ETH is sent to the user.
 
-   * Fiat Agent (buyer)
-   * Crypto Agent (seller)
+**Result:** no custody, no trust — only verifiable coordination.
 
-   These are minted as iNFTs on 0G Chain with persistent memory on 0G Storage.
+---
 
-2. **Quote Discovery (AXL Mesh)**
-   Your Fiat Agent broadcasts an RFQ across the AXL network.
-   LP Crypto Agents respond with signed quotes.
+## Architecture
 
-   Your agent selects the best quote deterministically.
+### Settlement Flow
 
-3. **Escrow Lock (0G Chain)**
-   The LP locks ETH into escrow and commits:
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant FA as Fiat Agent
+    participant CA as Crypto Agent
+    participant WA as Watcher Agent
+    participant AA as Attestation Agent
+    participant KH as KeeperHub
+    participant E as Escrow (0G)
 
-   ```
-   keccak256(paymentReceiver)
-   ```
+    U->>FA: Intent (100 USD → ETH)
+    FA->>CA: RFQ broadcast (AXL)
+    CA-->>FA: Signed quote
+    FA->>CA: Accept
+    CA->>E: Lock ETH + keccak256(receiver)
 
-   This receiver commitment is immutable.
+    U-->>CA: Fiat payment (UPI / bank)
+    WA->>WA: Webhook + HMAC validation
+    WA->>AA: Forward observation (AXL)
+    AA->>AA: Hash receiver, compare commitment
+    AA->>KH: Submit proof
+    KH->>E: release()
+    E-->>U: ETH released
+```
 
-4. **Fiat Payment (Real World)**
-   You pay via UPI / bank transfer / etc.
+### System Components
 
-5. **Webhook Observation (Watcher Agent)**
-   Bank confirms payment → webhook fires.
-   Watcher Agent:
+```mermaid
+flowchart LR
+    subgraph AXL["AXL Mesh — Coordination"]
+        FA[Fiat Agent]
+        CA[Crypto Agent]
+        WA[Watcher Agent]
+        AA[Attestation Agent]
+    end
 
-   * validates HMAC
-   * **cannot execute**
-   * only forwards observation
+    subgraph ZG["0G — Identity / Memory / Verification"]
+        CHAIN[(0G Chain<br/>iNFT + Escrow)]
+        STORE[(0G Storage<br/>Logs + Proofs)]
+        TEE[(0G Compute<br/>TEE Attestation)]
+    end
 
-6. **Verification (Attestation Agent)**
-   Attestation Agent:
+    subgraph EXEC["KeeperHub — Execution"]
+        KH[Scoped Wallet<br/>release / expire]
+    end
 
-   * hashes observed receiver
-   * compares with on-chain commitment
+    FA <--> CA
+    WA --> AA
+    FA --- CHAIN
+    CA --- CHAIN
+    AA --- STORE
+    FA --- STORE
+    AA --> KH
+    KH --> CHAIN
+    TEE -.attests.-> FA
+    TEE -.attests.-> CA
+```
 
-   If mismatch → fail
-   If match → continue
+### Trust Boundaries
 
-7. **Evidence + Execution**
+```mermaid
+flowchart TB
+    subgraph DECIDE["🧠 DECIDE (Agents — cannot move funds)"]
+        FA[Fiat Agent]
+        CA[Crypto Agent]
+        WA[Watcher Agent]
+        AA[Attestation Agent]
+    end
 
-   * Proof pinned to 0G Storage
-   * KeeperHub executes `release()`
-   * ETH sent to user
+    subgraph VERIFY["🔐 VERIFY (0G — immutable commitments)"]
+        COMMIT[keccak256 receiver]
+        PROOF[Merkle-pinned proofs]
+    end
 
-**Result:**
-No custody. No trust. Only verifiable coordination.
+    subgraph EXECUTE["⚙️ EXECUTE (KeeperHub — scoped wallet)"]
+        REL[release&#40;&#41;]
+        EXP[expire&#40;&#41;]
+    end
+
+    DECIDE --> VERIFY
+    VERIFY --> EXECUTE
+```
 
 ---
 
 ## The Four Agents
 
-| Agent                 | Role                              | Trust Property   |
-| --------------------- | --------------------------------- | ---------------- |
-| **Fiat Agent**        | Broadcasts intent, selects quotes | No custody       |
-| **Crypto Agent**      | Provides liquidity, locks funds   | Funds in escrow  |
-| **Watcher Agent**     | Observes payments                 | Cannot execute   |
-| **Attestation Agent** | Verifies + triggers release       | Cannot fabricate |
+| Agent | Role | Trust Property |
+|---|---|---|
+| **Fiat Agent** | Broadcasts intent, selects quotes | No custody |
+| **Crypto Agent** | Provides liquidity, locks funds | Funds in escrow |
+| **Watcher Agent** | Observes off-chain payments | Cannot execute |
+| **Attestation Agent** | Verifies + triggers release | Cannot fabricate |
 
-**Key Insight:**
-Compromising one agent is not enough to steal funds.
-
----
-
-## How Aegis Uses 0G
-
-Aegis treats 0G as the **agent execution environment**.
-
-### Identity (0G Chain)
-
-* Agents are minted as **iNFTs (ERC-7857)**
-* Transferable, persistent identities
-
-### Memory (0G Storage)
-
-Agents store:
-
-* decision logs
-* quote history
-* LP preferences
-* payment proofs
-
-All data is pinned via **Merkle commitments**, making behavior auditable.
-
-👉 Agents improve over time by learning which LPs perform reliably and which quotes succeed.
-
-### Verification (0G Compute)
-
-* Agent binaries are attested via **TEE**
-* Ensures canonical execution
-* Prevents tampered agent logic
-
-### Settlement (0G Chain)
-
-* Escrow contract enforces:
-
-  * receiver commitments
-  * deterministic release
+> Compromising any single agent is insufficient to steal funds.
 
 ---
 
-## How Aegis Uses Gensyn AXL
+## Sponsor Integrations
 
-AXL is the **coordination layer** of Aegis.
+### 0G — Agent Execution Environment
 
-* No backend
-* No message broker
-* No relay server
+| Layer | Use |
+|---|---|
+| **0G Chain** | Agents minted as iNFTs (ERC-7857); escrow contract enforces receiver commitments and deterministic release |
+| **0G Storage** | Decision logs, quote history, LP preferences, payment proofs — pinned via Merkle commitments for auditability |
+| **0G Compute** | Agent binaries attested via TEE to ensure canonical, untampered execution |
 
-Each agent runs on its own node.
+Agents improve over time by learning which LPs perform reliably and which quotes succeed.
 
-### Communication Flow
+### Gensyn AXL — Coordination Layer
 
-* Fiat Agent → RFQ broadcast
-* Crypto Agents → signed quotes
-* Watcher → forwards payment observations
-* Attestation → verifies
+No backend, no broker, no relay. Each agent runs on its own node.
 
-All messages:
+- **Messaging** — peer-to-peer, encrypted, routed over Yggdrasil mesh
+- **MCP** — agents expose dynamic capabilities (`get_quote`, `verify_payment`, `check_reputation`); other agents call them without hardcoded integrations
+- **Result** — a buyer in Germany and an LP in India discover, negotiate, and settle without shared infrastructure
 
-* peer-to-peer
-* encrypted
-* routed over Yggdrasil mesh
+### KeeperHub — Execution Boundary
 
-### MCP Integration
+Agents reason; KeeperHub executes.
 
-Agents expose capabilities:
+- Embedded wallet scoped strictly to `release()` and `expire()`
+- Webhook → Watcher → Attestation → valid proof → KeeperHub executes
+- Timeout → KeeperHub executes `expire()`
 
-* get quote
-* verify payment
-* check reputation
-
-Other agents can call these dynamically via AXL.
-
-👉 No hardcoded integrations required.
-
-### Real-World Scenario
-
-A buyer in Germany and an LP in India:
-
-* discover each other
-* negotiate
-* settle
-
-**Without any shared infrastructure.**
+> Agents cannot move funds. KeeperHub cannot execute invalid actions. Workflow logic cannot exceed permissions.
 
 ---
 
-## How Aegis Uses KeeperHub
-
-Agents can reason — but they cannot safely execute.
-
-KeeperHub is the **execution boundary**.
-
-### Key Design
-
-* Agents decide
-* KeeperHub executes
-
-### Execution Flow
-
-* Webhook → Watcher → Attestation
-* Valid proof → KeeperHub executes `release()`
-* Timeout → KeeperHub executes `expire()`
-
-### Security Model
-
-Embedded wallet is scoped to:
-
-* `release()`
-* `expire()`
-
-Nothing else.
-
-### Guarantees
-
-* Agents cannot move funds
-* KeeperHub cannot execute invalid actions
-* Workflow logic cannot exceed permissions
-
-👉 This ensures **reliable, bounded execution**.
-
----
-
-## Settlement Flow
-
-````mermaid
-sequenceDiagram
-    participant FA as Fiat Agent
-    participant CA as Crypto Agent
-    participant WA as Watcher Agent
-    participant AA as Attestation Agent
-    participant E as Escrow
-
-    FA->>CA: RFQ broadcast (AXL mesh)
-    CA-->>FA: Signed quote
-    FA->>CA: Accept quote
-    CA->>E: Lock tokens + receiver commitment
-
-    Note over FA,E: Buyer pays fiat via bank/UPI
-
-    WA->>WA: Receive webhook, validate HMAC
-    WA->>AA: Forward observation (AXL mesh)
-    AA->>AA: Verify receiver matches commitment
-    AA->>E: Pin evidence, call release()
-    E->>FA: Crypto released to buyer
-```text
-1. Fiat Agent → RFQ (AXL)
-2. Crypto Agents → Quotes
-3. Fiat Agent → Selects best
-4. Crypto Agent → Locks funds (0G)
-5. User → Pays fiat
-6. Watcher → Observes webhook
-7. Attestation → Verifies
-8. KeeperHub → Executes release
-9. Escrow → Sends crypto
-````
-
----
-
-## Key Security Primitive
-
-### Receiver Commitment Binding
-
-At lock:
+## Key Security Primitive — Receiver Commitment Binding
 
 ```text
-keccak256(paymentReceiver)
+At lock:         commitment = keccak256(paymentReceiver)
+At verification: keccak256(observedReceiver) == commitment ?
 ```
 
-At verification:
+Only matching values trigger release. This prevents payment spoofing and bait-and-switch attacks.
 
-* observed receiver is hashed
-* compared to commitment
-
-Only matching values trigger release.
-
-👉 Prevents payment spoofing or bait-and-switch attacks.
+```text
+  LOCK TIME                          VERIFY TIME
+  ─────────                          ───────────
+  receiver: alice@upi               observed: alice@upi
+        │                                 │
+        ▼                                 ▼
+   keccak256()                       keccak256()
+        │                                 │
+        ▼                                 ▼
+  ┌──────────┐    ==  match  ==>   ┌──────────┐
+  │ 0xa3f1.. │ <─────────────────> │ 0xa3f1.. │   ✅ release()
+  └──────────┘                     └──────────┘
+                  ≠  mismatch              ❌ revert
+```
 
 ---
 
 ## Deployed Contracts
 
-| Contract      | Address                                      | Description    |
-| ------------- | -------------------------------------------- | -------------- |
-| Escrow        | `0xeAD29cBfAb93ed51808D65954Dd1b3cDDaDA1348` | Settlement     |
-| AgentRegistry | `0x2E124DEaeD3Ba3b063356F9b45617d862e4b9dB5` | Agent keys     |
-| RailRegistry  | `0x0a22b6e2f0ac6cDA83C04B1Ba33aAc8e9Df6aed7` | Payment config |
-| AgentINFT     | `0xBf173825A08a98a0288923d00919daC13C94C70A` | Agent identity |
-| TestERC20     | `0x5F2577675beD125794FDfc44940b62D60BF00F81` | Test token     |
+| Contract | Address | Purpose |
+|---|---|---|
+| Escrow | `0xeAD29cBfAb93ed51808D65954Dd1b3cDDaDA1348` | Settlement |
+| AgentRegistry | `0x2E124DEaeD3Ba3b063356F9b45617d862e4b9dB5` | Agent keys |
+| RailRegistry | `0x0a22b6e2f0ac6cDA83C04B1Ba33aAc8e9Df6aed7` | Payment config |
+| AgentINFT | `0xBf173825A08a98a0288923d00919daC13C94C70A` | Agent identity (ERC-7857) |
+| TestERC20 | `0x5F2577675beD125794FDfc44940b62D60BF00F81` | Test token |
 
 ---
 
@@ -325,52 +253,55 @@ git clone https://github.com/arko05roy/Aegis.git && cd Aegis
 pnpm install
 cp .env.example .env
 
+# Start AXL nodes
 cd services/axl-node
 ./node -config node-config.json &
 ./node -config node-config-2.json &
 
+# Start agent + webhook services
 pnpm run agent-server &
 pnpm run webhook-receiver &
 
+# Start frontend
 pnpm dev
 ```
 
----
-
-## Demo
-
-**Live:** [https://aegis-ten-hazel.vercel.app](https://aegis-ten-hazel.vercel.app)
+Live demo: **https://aegis-ten-hazel.vercel.app**
 
 ---
 
 ## Sponsor Feedback
 
-### 0G
+<details>
+<summary><strong>0G</strong></summary>
 
-* unclear Indexer/MemData relationship
-* missing Merkle retrieval examples
-* Compute broker silent failures
+- Unclear Indexer / MemData relationship
+- Missing Merkle retrieval examples
+- Compute broker silent failures
+</details>
 
-### Gensyn AXL
+<details>
+<summary><strong>Gensyn AXL</strong></summary>
 
-* HTTP bridge undocumented
-* unclear message limits
-* MCP routing unspecified
+- HTTP bridge undocumented
+- Unclear message size limits
+- MCP routing unspecified
+</details>
 
-### KeeperHub
+<details>
+<summary><strong>KeeperHub</strong></summary>
 
-* webhook schema unclear
-* wallet scoping unclear
-* missing iteration tools
-* Galileo unsupported (used Base Sepolia mirror)
+- Webhook schema unclear
+- Wallet scoping unclear
+- Missing iteration tools
+- Galileo unsupported (used Base Sepolia mirror)
+</details>
 
 ---
 
 ## Team
 
-**Arko Roy**
-Telegram: [https://t.me/arkoroy](https://t.me/arkoroy)
-X: [https://x.com/arko05roy](https://x.com/arko05roy)
+**Arko Roy** — [Telegram](https://t.me/arkoroy) · [X](https://x.com/arko05roy)
 
 ---
 
