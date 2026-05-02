@@ -125,31 +125,6 @@ flowchart LR
     TEE -.attests.-> CA
 ```
 
-### Trust Boundaries
-
-```mermaid
-flowchart TB
-    subgraph DECIDE["🧠 DECIDE (Agents — cannot move funds)"]
-        FA[Fiat Agent]
-        CA[Crypto Agent]
-        WA[Watcher Agent]
-        AA[Attestation Agent]
-    end
-
-    subgraph VERIFY["🔐 VERIFY (0G — immutable commitments)"]
-        COMMIT[keccak256 receiver]
-        PROOF[Merkle-pinned proofs]
-    end
-
-    subgraph EXECUTE["⚙️ EXECUTE (KeeperHub — scoped wallet)"]
-        REL[release&#40;&#41;]
-        EXP[expire&#40;&#41;]
-    end
-
-    DECIDE --> VERIFY
-    VERIFY --> EXECUTE
-```
-
 ---
 
 ## The Four Agents
