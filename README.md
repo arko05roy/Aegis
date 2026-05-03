@@ -262,7 +262,6 @@ Live demo: **https://aegis-ten-hazel.vercel.app**
 - Webhook schema unclear
 - Wallet scoping unclear
 - Missing iteration tools
-- Galileo unsupported (used Base Sepolia mirror)
 </details>
 
 ---
