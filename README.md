@@ -268,7 +268,7 @@ Live demo: **https://aegis-ten-hazel.vercel.app**
 
 ## Team
 
-**Arko Roy** — [Telegram](https://t.me/arkoroy) · [X](https://x.com/arko05roy)
+**Arko Roy** — [Telegram](https://t.me/arkoxo) · [X](https://x.com/notarkoroy)
 
 ---
 
