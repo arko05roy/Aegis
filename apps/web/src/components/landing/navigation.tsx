@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
+
+const DEMO_VIDEO_ID = "2-3w2859044";
 
 const navLinks = [
   { name: "Capabilities",  href: "#features"      },
@@ -15,6 +17,34 @@ const navLinks = [
 export function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDemoOpen, setIsDemoOpen] = useState(false);
+  const demoContainerRef = useRef<HTMLDivElement>(null);
+
+  const openDemo = () => {
+    setIsDemoOpen(true);
+    setIsMobileMenuOpen(false);
+    requestAnimationFrame(() => {
+      const el = demoContainerRef.current;
+      if (el && el.requestFullscreen) {
+        el.requestFullscreen().catch(() => {});
+      }
+    });
+  };
+
+  const closeDemo = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    setIsDemoOpen(false);
+  };
+
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) setIsDemoOpen(false);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -65,18 +95,12 @@ export function Navigation() {
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-4">
-            <Link href="/lp/dashboard" className={`transition-all duration-500 ${isScrolled ? "text-xs text-foreground/70 hover:text-foreground" : "text-sm text-white/70 hover:text-white"}`}>
-              LP Portal
-            </Link>
-            <Link href="/wallets" className={`transition-all duration-500 ${isScrolled ? "text-xs text-foreground/70 hover:text-foreground" : "text-sm text-white/70 hover:text-white"}`}>
-              Launch App
-            </Link>
             <Button
               size="sm"
-              asChild
+              onClick={openDemo}
               className={`rounded-full transition-all duration-500 ${isScrolled ? "bg-foreground hover:bg-foreground/90 text-background px-4 h-8 text-xs" : "bg-white hover:bg-white/90 text-black px-6"}`}
             >
-              <Link href="/wallets">Start Swapping</Link>
+              Live Demo
             </Button>
           </div>
 
@@ -130,24 +154,37 @@ export function Navigation() {
           }`}
           style={{ transitionDelay: isMobileMenuOpen ? "300ms" : "0ms" }}
           >
-            <Button 
-              variant="outline" 
-              className="flex-1 rounded-full h-14 text-base"
-              onClick={() => setIsMobileMenuOpen(false)}
-              asChild
-            >
-              <Link href="/wallets">Launch App</Link>
-            </Button>
-            <Button 
+            <Button
               className="flex-1 bg-foreground text-background rounded-full h-14 text-base"
-              onClick={() => setIsMobileMenuOpen(false)}
-              asChild
+              onClick={openDemo}
             >
-              <Link href="/wallets">Start Swapping</Link>
+              Live Demo
             </Button>
           </div>
         </div>
       </div>
+
+      {isDemoOpen && (
+        <div
+          ref={demoContainerRef}
+          className="fixed inset-0 z-[100] bg-black flex items-center justify-center"
+        >
+          <button
+            onClick={closeDemo}
+            aria-label="Close demo"
+            className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <iframe
+            className="w-full h-full"
+            src={`https://www.youtube.com/embed/${DEMO_VIDEO_ID}?autoplay=1&rel=0`}
+            title="Live Demo"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            allowFullScreen
+          />
+        </div>
+      )}
     </header>
   );
 }
