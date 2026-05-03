@@ -5,7 +5,7 @@
 <h1 align="center">Aegis</h1>
 
 <p align="center">
-  <strong>A Decentralised Peer-to-Peer Fiat-to-Crypto Onramp</strong><br/>
+  <strong>The first fiat-to-crypto onramp with no operator</strong><br/>
   Autonomous agents. No custodians. No central coordinator.
 </p>
 
@@ -27,13 +27,11 @@
 
 ## Overview
 
-Aegis is a decentralised peer-to-peer fiat-to-crypto onramp powered by a multi-agent system. It coordinates real-world fiat-to-crypto settlement without a central operator. Four autonomous agents discover each other peer-to-peer, negotiate quotes, verify off-chain payments, and trigger on-chain settlement — each constrained so that **no single agent can move funds alone**.
+Aegis is the first fiat-to-crypto onramp operated by no one. A four-agent autonomous swarm — Fiat, Crypto, Watcher, Attestation — discovers each other peer-to-peer, negotiates quotes through sealed inference, verifies off-chain payments, and triggers on-chain settlement. Each agent has structurally different powers, so that **no single agent can move funds alone**.
 
-Aegis replaces centralized onramps with autonomous agents coordinating real-world settlement — without any trusted intermediary.
-
-- **AXL** — peer-to-peer communication layer
-- **0G** — identity, memory, and verification
-- **KeeperHub** — bounded execution boundary
+- **Peer-to-peer coordination** — agents discover and negotiate over an encrypted mesh (Gensyn AXL)
+- **Identity, memory, verification** — stateful, self-evolving agents with verifiable binaries (0G Chain + Storage + Compute)
+- **Bounded execution** — a scoped wallet that's the only thing that can move funds (KeeperHub)
 
 ---
 
@@ -148,12 +146,11 @@ flowchart LR
 
 | Layer | Use |
 |---|---|
-| **0G Chain** | Agents minted as iNFTs (ERC-7857); escrow contract enforces receiver commitments and deterministic release |
-| **0G Storage** | Decision logs, quote history, LP preferences, payment proofs — pinned via Merkle commitments for auditability |
-| **0G Compute** | Agent binaries attested via TEE to ensure canonical, untampered execution |
+| **0G Chain** | Agents minted as iNFTs (ERC-7857) with embedded intelligence; escrow contract enforces receiver commitments and deterministic release |
+| **0G Storage** | KV memory for real-time agent state + Log memory for full settlement history; decision logs, quote history, LP reputation priors — encrypted and Merkle-rooted for auditability and federated reputation learning |
+| **0G Compute** | Sealed inference (TEE-attested LLM calls) for quote ranking and counterparty reputation scoring; agent binary attestation ensures canonical, untampered execution |
 
-Agents improve over time by learning which LPs perform reliably and which quotes succeed.
-Agents persist history and continuously improve quote selection and counterparty reliability using 0G Storage-backed memory.
+Agents are self-evolving: every settlement updates the reputation graph through federated learning, and the swarm continuously improves quote selection and counterparty reliability scoring across sessions via 0G Storage-backed memory.
 
 ### Gensyn AXL — Coordination Layer
 
