@@ -156,17 +156,21 @@ Agents are self-evolving: every settlement updates the reputation graph through 
 
 No backend, no broker, no relay. Each agent runs on its own node.
 
-- **Messaging** — peer-to-peer, encrypted, routed over Yggdrasil mesh
-- **MCP** — agents expose dynamic capabilities (`get_quote`, `verify_payment`, `check_reputation`); other agents call them without hardcoded integrations
-- **Result** — a buyer in Germany and an LP in India discover, negotiate, and settle without shared infrastructure
+| Layer | Use |
+|---|---|
+| **Messaging** | Peer-to-peer, end-to-end encrypted, routed over Yggdrasil mesh |
+| **MCP** | Agents expose dynamic capabilities (`get_quote`, `verify_payment`, `check_reputation`); other agents call them without hardcoded integrations |
+| **Result** | A buyer in Germany and an LP in India discover, negotiate, and settle without shared infrastructure |
 
 ### KeeperHub — Execution Boundary
 
 Agents reason; KeeperHub executes.
 
-- Embedded wallet scoped strictly to `release()` and `expire()`
-- Webhook → Watcher → Attestation → valid proof → KeeperHub executes
-- Timeout → KeeperHub executes `expire()`
+| Trigger | Action |
+|---|---|
+| **Wallet scope** | Embedded wallet strictly scoped to `release()` and `expire()` |
+| **Valid proof** | Webhook → Watcher → Attestation → KeeperHub executes `release()` |
+| **Timeout** | KeeperHub executes `expire()` |
 
 > Agents cannot move funds. KeeperHub cannot execute invalid actions. Workflow logic cannot exceed permissions.
 
