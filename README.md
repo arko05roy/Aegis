@@ -11,8 +11,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/0G-Storage%20%2B%20Compute%20%2B%20Chain-00D4AA?style=flat-square" alt="0G" />
-  <img src="https://img.shields.io/badge/Gensyn-AXL%20Mesh-7C3AED?style=flat-square" alt="AXL" />
-  <img src="https://img.shields.io/badge/KeeperHub-Execution-FF6B35?style=flat-square" alt="KeeperHub" />
+  <img src="https://img.shields.io/badge/0G-APAC%20Hackathon%202026-00D4AA?style=flat-square" alt="0G APAC" />
+  <img src="https://img.shields.io/badge/Track-Agentic%20Economy-7C3AED?style=flat-square" alt="Track" />
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT" />
 </p>
 
@@ -27,11 +27,14 @@
 
 ## Overview
 
-Aegis is the first fiat-to-crypto onramp operated by no one. A four-agent autonomous swarm — Fiat, Crypto, Watcher, Attestation — discovers each other peer-to-peer, negotiates quotes through sealed inference, verifies off-chain payments, and triggers on-chain settlement. Each agent has structurally different powers, so that **no single agent can move funds alone**.
+Aegis is the first fiat-to-crypto onramp operated by no one. A four-agent autonomous swarm — Fiat, Crypto, Watcher, Attestation — coordinates peer-to-peer, negotiates quotes through sealed inference, verifies off-chain payments, and triggers on-chain settlement. Each agent has structurally different powers, so that **no single agent can move funds alone**.
 
-- **Peer-to-peer coordination** — agents discover and negotiate over an encrypted mesh (Gensyn AXL)
-- **Identity, memory, verification** — stateful, self-evolving agents with verifiable binaries (0G Chain + Storage + Compute)
-- **Bounded execution** — a scoped wallet that's the only thing that can move funds (KeeperHub)
+Built end-to-end on **0G's modular AI x Web3 stack** — agents are minted as iNFTs on 0G Chain, persist memory on 0G Storage, run sealed inference on 0G Compute, and settle through a 0G-native escrow with a scoped execution boundary.
+
+- **Identity** — agents minted as iNFTs (ERC-7857) on 0G Chain with verifiable binaries
+- **Memory** — KV + Log memory on 0G Storage; encrypted, Merkle-rooted, federated
+- **Verification** — TEE-attested sealed inference on 0G Compute for quote ranking
+- **Execution** — scoped on-chain release through a 0G escrow contract; no agent can move funds alone
 
 ---
 
@@ -51,12 +54,12 @@ Aegis removes that gateway by replacing operators with verifiable agent coordina
 > Scenario: you want to swap **100 USD → ETH**.
 
 1. **Connect Wallet** — you receive two agents (Fiat + Crypto), minted as iNFTs (ERC-7857) on 0G Chain with persistent memory on 0G Storage.
-2. **Quote Discovery** — your Fiat Agent broadcasts an RFQ across the AXL mesh; LP Crypto Agents reply with signed quotes; the best is selected deterministically.
-3. **Escrow Lock** — the LP locks ETH into escrow and commits `keccak256(paymentReceiver)`. The receiver commitment is immutable.
+2. **Quote Discovery** — your Fiat Agent broadcasts an RFQ; LP Crypto Agents reply with signed quotes ranked by sealed inference on 0G Compute; the best is selected deterministically.
+3. **Escrow Lock** — the LP locks ETH into the 0G escrow contract and commits `keccak256(paymentReceiver)`. The receiver commitment is immutable.
 4. **Fiat Payment** — you pay via UPI / bank transfer.
 5. **Webhook Observation** — the Watcher Agent validates the HMAC and forwards the observation. It **cannot execute**.
 6. **Verification** — the Attestation Agent hashes the observed receiver and compares it to the on-chain commitment.
-7. **Evidence + Execution** — proof is pinned to 0G Storage; KeeperHub executes `release()`; ETH is sent to the user.
+7. **Evidence + Execution** — proof is pinned to 0G Storage; the scoped executor calls `release()` on the 0G escrow; ETH is sent to the user.
 
 **Result:** no custody, no trust — only verifiable coordination.
 
@@ -74,21 +77,21 @@ sequenceDiagram
     participant CA as Crypto Agent
     participant WA as Watcher Agent
     participant AA as Attestation Agent
-    participant KH as KeeperHub
-    participant E as Escrow (0G)
+    participant EX as Scoped Executor
+    participant E as Escrow (0G Chain)
 
     U->>FA: Intent (100 USD → ETH)
-    FA->>CA: RFQ broadcast (AXL)
-    CA-->>FA: Signed quote
+    FA->>CA: RFQ broadcast
+    CA-->>FA: Signed quote (ranked via 0G Compute)
     FA->>CA: Accept
     CA->>E: Lock ETH + keccak256(receiver)
 
     U-->>CA: Fiat payment (UPI / bank)
     WA->>WA: Webhook + HMAC validation
-    WA->>AA: Forward observation (AXL)
+    WA->>AA: Forward observation
     AA->>AA: Hash receiver, compare commitment
-    AA->>KH: Submit proof
-    KH->>E: release()
+    AA->>EX: Submit proof (pinned to 0G Storage)
+    EX->>E: release()
     E-->>U: ETH released
 ```
 
@@ -96,21 +99,18 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    subgraph AXL["AXL Mesh — Coordination"]
+    subgraph SWARM["Agent Swarm — Coordination"]
         FA[Fiat Agent]
         CA[Crypto Agent]
         WA[Watcher Agent]
         AA[Attestation Agent]
     end
 
-    subgraph ZG["0G — Identity / Memory / Verification"]
+    subgraph ZG["0G Stack — Identity / Memory / Verification / Settlement"]
         CHAIN[(0G Chain<br/>iNFT + Escrow)]
         STORE[(0G Storage<br/>Logs + Proofs)]
-        TEE[(0G Compute<br/>TEE Attestation)]
-    end
-
-    subgraph EXEC["KeeperHub — Execution"]
-        KH[Scoped Wallet<br/>release / expire]
+        TEE[(0G Compute<br/>Sealed Inference + TEE)]
+        EX[Scoped Executor<br/>release / expire]
     end
 
     FA <--> CA
@@ -119,8 +119,8 @@ flowchart LR
     CA --- CHAIN
     AA --- STORE
     FA --- STORE
-    AA --> KH
-    KH --> CHAIN
+    AA --> EX
+    EX --> CHAIN
     TEE -.attests.-> FA
     TEE -.attests.-> CA
 ```
@@ -140,39 +140,47 @@ flowchart LR
 
 ---
 
-## Sponsor Integrations
+## 0G Integration
 
-### 0G — Agent Execution Environment
+Aegis is built end-to-end on the 0G stack. Every layer of the system — identity, memory, inference, settlement — runs on a 0G primitive.
 
-| Layer | Use |
+| 0G Layer | How Aegis Uses It |
 |---|---|
-| **0G Chain** | Agents minted as iNFTs (ERC-7857) with embedded intelligence; escrow contract enforces receiver commitments and deterministic release |
+| **0G Chain** | Agents minted as iNFTs (ERC-7857) with embedded intelligence; escrow contract enforces `keccak256(receiver)` commitments and deterministic release; all settlement is on-chain and verifiable |
 | **0G Storage** | KV memory for real-time agent state + Log memory for full settlement history; decision logs, quote history, LP reputation priors — encrypted and Merkle-rooted for auditability and federated reputation learning |
-| **0G Compute** | Sealed inference (TEE-attested LLM calls) for quote ranking and counterparty reputation scoring; agent binary attestation ensures canonical, untampered execution |
+| **0G Compute** | Sealed inference (TEE-attested LLM calls) for quote ranking and counterparty reputation scoring; agent binary attestation ensures canonical, untampered execution and mitigates front-running on quote selection |
+| **Agent ID** | Each agent has a persistent identity bound to its iNFT; reputation, memory, and signing keys travel with the identity across sessions |
+| **Privacy / Secure Execution** | Sealed inference + TEE attestation provide execution privacy for proprietary quote ranking and reputation logic |
 
 Agents are self-evolving: every settlement updates the reputation graph through federated learning, and the swarm continuously improves quote selection and counterparty reliability scoring across sessions via 0G Storage-backed memory.
 
-### Gensyn AXL — Coordination Layer
+### Bounded Execution
 
-No backend, no broker, no relay. Each agent runs on its own node.
-
-| Layer | Use |
-|---|---|
-| **Messaging** | Peer-to-peer, end-to-end encrypted, routed over Yggdrasil mesh |
-| **MCP** | Agents expose dynamic capabilities (`get_quote`, `verify_payment`, `check_reputation`); other agents call them without hardcoded integrations |
-| **Result** | A buyer in Germany and an LP in India discover, negotiate, and settle without shared infrastructure |
-
-### KeeperHub — Execution Boundary
-
-Agents reason; KeeperHub executes.
+Agents reason; only a scoped executor — strictly limited to `release()` and `expire()` on the 0G escrow — can move funds.
 
 | Trigger | Action |
 |---|---|
-| **Wallet scope** | Embedded wallet strictly scoped to `release()` and `expire()` |
-| **Valid proof** | Webhook → Watcher → Attestation → KeeperHub executes `release()` |
-| **Timeout** | KeeperHub executes `expire()` |
+| **Valid proof** | Webhook → Watcher → Attestation → Executor calls `release()` |
+| **Timeout** | Executor calls `expire()` |
 
-> Agents cannot move funds. KeeperHub cannot execute invalid actions. Workflow logic cannot exceed permissions.
+> Agents cannot move funds. The executor cannot execute invalid actions. Workflow logic cannot exceed permissions.
+
+---
+
+## 0G APAC Hackathon 2026
+
+Aegis is a submission to the **0G APAC Hackathon** (March–May 2026), targeting **Track 3: Agentic Economy & Autonomous Applications** with crossover relevance to **Track 1 (Agentic Infrastructure)** and **Track 2 (Verifiable Finance)**.
+
+| Hackathon Requirement | Where to Find It |
+|---|---|
+| 0G mainnet contract address | See [Deployed Contracts](#deployed-contracts) |
+| 0G Explorer link / on-chain activity | Escrow `0xeAD29cBfAb93ed51808D65954Dd1b3cDDaDA1348` on 0G Chain |
+| 0G core component integration | 0G Chain (iNFT + Escrow), 0G Storage (memory + proofs), 0G Compute (sealed inference) |
+| Demo video (≤3 min) | Linked from [Live Demo](https://aegis-ten-hazel.vercel.app) |
+| Architecture & docs | This README — see [Architecture](#architecture) |
+| Local reproduction steps | See [Local Development](#local-development) |
+
+**Why Aegis fits the 0G thesis:** the project depends on every flagship 0G primitive — chain, storage, compute, agent identity, sealed execution — to make a decentralized fiat-to-crypto onramp possible. Without 0G, there is no verifiable agent coordination, no persistent reputation, and no privacy-preserving quote ranking.
 
 ---
 
@@ -221,11 +229,6 @@ git clone https://github.com/arko05roy/Aegis.git && cd Aegis
 pnpm install
 cp .env.example .env
 
-# Start AXL nodes
-cd services/axl-node
-./node -config node-config.json &
-./node -config node-config-2.json &
-
 # Start agent + webhook services
 pnpm run agent-server &
 pnpm run webhook-receiver &
@@ -238,31 +241,13 @@ Live demo: **https://aegis-ten-hazel.vercel.app**
 
 ---
 
-## Sponsor Feedback
+## Developer Feedback for 0G
 
-<details>
-<summary><strong>0G</strong></summary>
+Notes from building on the 0G stack — submitted as constructive feedback to the team:
 
-- Unclear Indexer / MemData relationship
-- Missing Merkle retrieval examples
-- Compute broker silent failures
-</details>
-
-<details>
-<summary><strong>Gensyn AXL</strong></summary>
-
-- HTTP bridge undocumented
-- Unclear message size limits
-- MCP routing unspecified
-</details>
-
-<details>
-<summary><strong>KeeperHub</strong></summary>
-
-- Webhook schema unclear
-- Wallet scoping unclear
-- Missing iteration tools
-</details>
+- Indexer / MemData relationship is unclear in current docs
+- Merkle retrieval examples would help onboarding
+- Compute broker can fail silently; surfacing structured errors would aid debugging
 
 ---
 
